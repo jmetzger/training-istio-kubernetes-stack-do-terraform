@@ -25,7 +25,7 @@ Dieses Repository automatisiert den Aufbau eines selbstverwalteten Kubernetes-Cl
 > Alternativ kannst du dein API-Token auch in einer `.env`-Datei speichern und mit `source .env` laden:
 >
 > ```env
-> TF_VAR_do_token="<your_token>"
+> export TF_VAR_do_token="<your_token>"
 > ```
 
 ```bash
