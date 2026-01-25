@@ -7,11 +7,11 @@
 - ✅ CRD-Installation deaktiviert (--skip-crds)
 - ✅ --reset-values hinzugefügt
 - ✅ IP-Wartelogik funktioniert mit neuem Service-Namen
+- ✅ README.md aktualisiert mit Traefik-Informationen
 
 ## In Arbeit
 
 ## Ausstehend
-- README.md aktualisieren mit Traefik-Informationen
 - Testing und Validierung durchführen
 - Pull Request erstellen
 

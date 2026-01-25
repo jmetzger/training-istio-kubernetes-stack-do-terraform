@@ -6,7 +6,7 @@ Dieses Repository automatisiert den Aufbau eines selbstverwalteten Kubernetes-Cl
 - Kubernetes-Installation via Cloud-init + kubeadm
 - Calico CNI via Tigera Operator
 - MetalLB LoadBalancer mit L2 Propagation
-- NGINX Ingress Controller
+- Traefik Ingress Controller
 - Automatischer `kubeadm join` per SSH + kubeconfig Übergabe
 
 ---
@@ -67,7 +67,7 @@ Falls das Verzeichnis `~/.kube` noch nicht existiert, wird es automatisch erstel
 - Kubernetes: `1.33.0-00` (Fallback: `1.32.3-00`)
 - Calico: Tigera Operator (CRD-basiert)
 - MetalLB: Helm Chart `0.13.12`
-- ingress-nginx: Helm Chart `4.10.0`
+- Traefik: Helm Chart `38.0.2` (ohne CRDs)
 
 ---
 
@@ -87,6 +87,10 @@ Nach der Ingress-Installation werden automatisch A-Records erstellt:
 kubectl get nodes
 kubectl get pods -A
 kubectl get ipaddresspool -n metallb-system
+
+# Traefik Ingress Controller prüfen
+kubectl -n ingress get pods
+kubectl -n ingress get svc
 ```
 
 ---
