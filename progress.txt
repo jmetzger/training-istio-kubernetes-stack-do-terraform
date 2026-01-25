@@ -20,5 +20,4 @@
 ## In Arbeit
 
 ## Ausstehend
-- Pull Request erstellen
 
