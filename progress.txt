@@ -1,0 +1,17 @@
+## Erledigt
+- ✅ Feature-Branch erstellt (feature/migrate-nginx-to-traefik)
+- ✅ Traefik Helm Chart in deploy.sh integriert (Version 38.0.2)
+- ✅ nginx Ingress Deployment entfernt
+- ✅ Namespace auf 'ingress' aktualisiert
+- ✅ Service-Namen auf 'traefik' aktualisiert
+- ✅ CRD-Installation deaktiviert (--skip-crds)
+- ✅ --reset-values hinzugefügt
+- ✅ IP-Wartelogik funktioniert mit neuem Service-Namen
+
+## In Arbeit
+
+## Ausstehend
+- README.md aktualisieren mit Traefik-Informationen
+- Testing und Validierung durchführen
+- Pull Request erstellen
+

@@ -3,9 +3,9 @@
 echo "Script runs here "$(pwd)
 
 
-# Needs to get executed from terraform !!! 
-INGRESS_NAMESPACE=ingress-nginx
-INGRESS_SERVICE_NAME=ingress-nginx-controller
+# Needs to get executed from terraform !!!
+INGRESS_NAMESPACE=ingress
+INGRESS_SERVICE_NAME=traefik
 
 # Script is started from Root-Folder, so metallb-values.yaml can be found
 # That one is created by terraform 
@@ -14,8 +14,8 @@ helm upgrade --install --wait metallb metallb/metallb --version=0.13.12 --namesp
 # Now install the config 
 helm upgrade --install metallb-config ./charts/metallb-config --namespace metallb-system -f metallb-values.yaml
 
-helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx 
-helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx --version 4.10.0 --create-namespace --namespace ingress-nginx 
+helm repo add traefik https://traefik.github.io/charts
+helm upgrade --install traefik traefik/traefik --version 38.0.2 --create-namespace --namespace ingress --skip-crds --reset-values 
 
 # Waiting till we get an ip
 
