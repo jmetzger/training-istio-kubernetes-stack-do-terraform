@@ -15,6 +15,15 @@ Ersetzung des bestehenden NGINX Ingress Controllers durch Traefik als Ingress-L�
 ### 1.2 Hintergrund
 Das aktuelle Setup verwendet `ingress-nginx` (Helm Chart Version 4.10.0) als Ingress Controller. Traefik bietet moderne Features, native Kubernetes-Integration und eine bessere Performance für moderne Cloud-Native Workloads.
 
+### 1.3 Infrastruktur-Kontext
+Das Kubernetes-Cluster wird über Terraform auf DigitalOcean ausgerollt. Die vollständige Infrastruktur inklusive Cluster-Provisionierung, MetalLB, DNS-Konfiguration und Ingress-Controller wird automatisiert bereitgestellt.
+
+**Voraussetzungen:**
+- **DigitalOcean Token:** Ein gültiger API-Token für DigitalOcean ist als Umgebungsvariable `DIGITALOCEAN_ACCESS_TOKEN` vorhanden
+- **Terraform:** Version >= 1.0 für das Cluster-Rollout
+- **kubectl:** Für die Validierung und das Management des Clusters
+- **Test-User:** `tln1` für DNS und Validierungstests
+
 ---
 
 ## 2. Anforderungen
@@ -109,15 +118,42 @@ helm upgrade -n ingress --install traefik traefik/traefik \
 5. CRD-Installation deaktivieren (`--skip-crds`)
 6. IP-Wartelogik auf neuen Service-Namen anpassen
 7. README.md aktualisieren
-8. Testing und Validierung
-9. Pull Request erstellen
+8. **Terraform Rollout testen** (mit User `tln1`)
+   - `terraform init`
+   - `terraform plan` (Änderungen prüfen)
+   - `terraform apply` (Cluster ausrollen)
+   - Erfolgreiches Deployment kontrollieren
+9. Testing und Validierung
+10. Pull Request erstellen
 
 ---
 
 ## 4. Validierung & Testing
 
-### 4.1 Deployment-Validierung
+### 4.1 Terraform Rollout-Validierung
 ```bash
+# Token prüfen
+echo $DIGITALOCEAN_ACCESS_TOKEN
+
+# Terraform initialisieren
+terraform init
+
+# Änderungen planen und prüfen
+terraform plan
+
+# Cluster ausrollen
+terraform apply -auto-approve
+
+# Terraform State prüfen
+terraform state list
+terraform output
+```
+
+### 4.2 Deployment-Validierung
+```bash
+# Cluster-Verbindung testen
+kubectl cluster-info
+
 # Traefik Pods prüfen
 kubectl -n ingress get pods
 
@@ -128,12 +164,19 @@ kubectl -n ingress get svc
 kubectl logs -n ingress -l app.kubernetes.io/name=traefik
 ```
 
-### 4.2 Ingress-Funktionalität
-- Test-Ingress Resource erstellen
-- DNS-Auflösung testen (`*.{user}.do.t3isp.de`)
-- HTTP/HTTPS Routing validieren
+### 4.3 Ingress-Funktionalität
+```bash
+# DNS-Auflösung testen (mit User tln1)
+dig +short app.tln1.do.t3isp.de
 
-### 4.3 MetalLB Integration
+# Test-Ingress Resource erstellen
+kubectl apply -f <test-ingress.yaml>
+
+# HTTP Routing validieren
+curl -H "Host: app.tln1.do.t3isp.de" http://<TRAEFIK_IP>
+```
+
+### 4.4 MetalLB Integration
 ```bash
 # IP-Pool Status prüfen
 kubectl get ipaddresspool -n metallb-system
@@ -171,10 +214,12 @@ Falls nach der Migration Probleme auftreten:
 
 ## 7. Erfolgs-Kriterien
 
+- ✅ **Terraform Rollout erfolgreich** (`terraform apply` ohne Fehler)
+- ✅ **Cluster erreichbar** (kubectl Zugriff funktioniert)
 - ✅ Traefik Helm Chart erfolgreich installiert
 - ✅ CRDs nicht installiert (verifiziert via `kubectl get crd | grep traefik`)
 - ✅ LoadBalancer IP erfolgreich von MetalLB zugewiesen
-- ✅ DNS A-Record zeigt auf Traefik LoadBalancer IP
+- ✅ DNS A-Record zeigt auf Traefik LoadBalancer IP (`*.tln1.do.t3isp.de`)
 - ✅ Test-Ingress erfolgreich erreichbar
 - ✅ Keine nginx Komponenten mehr im Cluster
 - ✅ README.md aktualisiert mit Traefik-Informationen
@@ -187,9 +232,10 @@ Falls nach der Migration Probleme auftreten:
 |-------|-----------|-------|
 | 1 | Branch erstellen und Code-Änderungen | - |
 | 2 | Traefik Integration implementieren | - |
-| 3 | Testing und Validierung | - |
-| 4 | Dokumentation aktualisieren | - |
-| 5 | Code Review und Merge | - |
+| 3 | **Terraform Rollout testen (User: tln1)** | - |
+| 4 | Deployment-Kontrolle und Validierung | - |
+| 5 | Dokumentation aktualisieren | - |
+| 6 | Code Review und Merge | - |
 
 ---
 
