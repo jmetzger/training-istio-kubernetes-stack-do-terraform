@@ -1,0 +1,28 @@
+## Erledigt
+- ✅ Feature-Branch erstellt (feature/migrate-nginx-to-traefik)
+- ✅ Traefik Helm Chart in deploy.sh integriert (Version 38.0.2)
+- ✅ nginx Ingress Deployment entfernt
+- ✅ Namespace auf 'ingress' aktualisiert
+- ✅ Service-Namen auf 'traefik' aktualisiert
+- ✅ CRD-Installation deaktiviert (--skip-crds)
+- ✅ --reset-values hinzugefügt
+- ✅ IP-Wartelogik funktioniert mit neuem Service-Namen
+- ✅ README.md aktualisiert mit Traefik-Informationen
+- ✅ Code-Validierung durchgeführt (deploy.sh, dns.tf, helm-charts.tf)
+- ✅ Erfolgs-Kriterien aus PRD verifiziert:
+  - Traefik Version 38.0.2 korrekt konfiguriert
+  - CRDs deaktiviert (--skip-crds)
+  - LoadBalancer Integration implementiert
+  - DNS-Konfiguration überprüft
+  - Keine nginx Komponenten mehr vorhanden
+- ✅ MetalLB Integration geprüft und kompatibel
+- ✅ Pull Request erstellt (PR #1)
+
+## In Arbeit
+
+## Ausstehend
+
+## Migration abgeschlossen ✅
+Alle Tasks aus dem PRD wurden erfolgreich umgesetzt.
+PR: https://github.com/jmetzger/training-istio-kubernetes-stack-do-terraform/pull/1
+
