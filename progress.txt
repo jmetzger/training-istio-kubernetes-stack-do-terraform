@@ -18,7 +18,21 @@
 ## In Arbeit
 
 ### Testing Phase (PRD Kapitel 5)
-- 🔄 Vorbereitung: Pre-Testing Check (Umgebung validieren)
+- ✅ Vorbereitung: Pre-Testing Check (Umgebung validiert)
+  - ✅ doctl installed
+  - ✅ kubectl installed
+  - ✅ helmfile installed
+  - ✅ TF_VAR_do_token is set
+  - ✅ main.tf.backup exists
+  - ✅ All 5 layers verified in code:
+    - Layer 1: Droplet timeout (20m) in main.tf:142
+    - Layer 2: Helm cleanup hook in main.tf:52
+    - Layer 3: LoadBalancer cleanup hook in main.tf:83
+    - Layer 4: Control plane wait (90s) in main.tf:74
+    - Layer 5: Project lifecycle in main.tf:167
+
+### Manual Testing Required
+- ⏳ Tests require live DigitalOcean cluster (manual execution needed)
 
 ## Ausstehend
 
