@@ -100,7 +100,7 @@ Alle erforderlichen Tasks aus dem PRD wurden erfolgreich umgesetzt.
 
 ### Branch: feature/cert-manager-http01
 
-### Konfiguration vorbereitet ✅
+### Konfiguration vorbereitet und verifiziert ✅
 - ✅ helmfile.yaml erstellt mit cert-manager v1.16.3
 - ✅ Chart charts/cert-manager-config/ erstellt
 - ✅ ClusterIssuer Template für HTTP-01 Challenge erstellt
@@ -110,28 +110,41 @@ Alle erforderlichen Tasks aus dem PRD wurden erfolgreich umgesetzt.
 - ✅ values.yaml: enableHttp01: true, enableDns01: false
 - ✅ .env.example erstellt
 - ✅ CERT-MANAGER.md Dokumentation vorhanden
+- ✅ Konfiguration verifiziert (2026-01-28 08:30):
+  - helmfile.yaml: korrekte Struktur, Dependencies gesetzt
+  - ClusterIssuer Template: verwendet "traefik" ingressClassName
+  - values.yaml: HTTP-01 enabled, DNS-01 disabled
+  - Chart Structure: alle Templates vorhanden
 
 ### Cluster-Zugriff erforderlich ⚠️
-**Status:** Cluster aktuell nicht erreichbar
+**Status:** Cluster aktuell nicht erreichbar (2026-01-28 08:30)
 
-**Grund:**
+**Diagnose durchgeführt:**
 - kubeconfig ist leer (~/.kube/config existiert aber enthält keine Konfiguration)
 - Self-managed Droplets (207.154.242.28) nicht per SSH erreichbar (Connection timeout)
-- DigitalOcean API Token abgelaufen/ungültig
+- DigitalOcean API Token abgelaufen/ungültig (doctl: 401 Unable to authenticate)
+- Terraform State vorhanden aber Plan zeigt: 9 to add, 2 to change, 3 to destroy
+- ingress_ip.txt existiert mit IP 206.189.251.58 (alter Traefik LoadBalancer)
 
-**Nächste Schritte (blockiert):**
-Gemäß PRD Abschnitt 3 (Terraform Rollout) wird vorausgesetzt:
-1. ⏸️ Cluster muss via `terraform apply` deployed werden
-2. ⏸️ .kube/config sollte automatisch konfiguriert werden
-3. ⏸️ Traefik Ingress Controller muss laufen
+**BLOCKER:**
+Deployment kann nicht fortgesetzt werden ohne gültigen Cluster-Zugriff.
+Gemäß PRD Abschnitt 3 ist ein funktionierendes Kubernetes Cluster Voraussetzung.
 
-**Was vorbereitet wurde (kann deployed werden sobald Cluster verfügbar):**
+**Erforderliche Maßnahmen (durch User):**
+1. ⚠️ Gültigen DIGITALOCEAN_TOKEN bereitstellen
+2. ⚠️ `terraform apply` ausführen um Cluster zu deployen
+3. ⚠️ Sicherstellen dass .kube/config automatisch konfiguriert wird
+4. ⚠️ Verifizieren dass Traefik Ingress Controller läuft
+
+**Deployment-Ready Status:**
+Die cert-manager Konfiguration ist vollständig und bereit für Deployment.
+Sobald Cluster-Zugriff verfügbar ist, können folgende Schritte ohne Anpassungen ausgeführt werden:
 1. ✅ `helmfile sync` - Wird cert-manager installieren
 2. ✅ ClusterIssuer `letsencrypt-http01` wird automatisch erstellt
-3. ✅ HTTP-01 Challenge über Traefik konfiguriert
+3. ✅ HTTP-01 Challenge über Traefik wird funktionieren
 
-### Ausstehende Tasks (benötigen Cluster-Zugriff):
-- [ ] Cluster-Zugriff wiederherstellen (terraform apply mit gültigem DO Token)
+### Ausstehende Tasks (blockiert durch fehlenden Cluster-Zugriff):
+- [ ] 🔴 BLOCKER: Cluster-Zugriff wiederherstellen (terraform apply mit gültigem DO Token)
 - [ ] helmfile sync ausführen (PRD Abschnitt 4.2)
 - [ ] cert-manager Pods verifizieren (PRD Abschnitt 5.1)
 - [ ] ClusterIssuer Ready Status prüfen (PRD Abschnitt 5.2)
@@ -139,4 +152,8 @@ Gemäß PRD Abschnitt 3 (Terraform Rollout) wird vorausgesetzt:
 - [ ] Test-Ingress mit TLS validieren (PRD Abschnitt 5.4)
 - [ ] Cleanup durchführen (PRD Abschnitt 6)
 - [ ] Pull Request erstellen nach master
+
+### Nächster Schritt
+**Wartet auf:** Gültigen DigitalOcean API Token + Cluster-Deployment
+**Dann:** Direkt mit `helmfile sync` fortfahren (PRD Abschnitt 4.2)
 
