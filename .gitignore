@@ -6,3 +6,4 @@ metallb-values.yaml
 *tfstate*
 tfplan
 ingress_ip.txt
+tfplan
