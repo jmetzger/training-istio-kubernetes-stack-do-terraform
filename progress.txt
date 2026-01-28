@@ -153,9 +153,15 @@ Sobald Cluster-Zugriff verfügbar ist, können folgende Schritte ohne Anpassunge
 - [ ] Cleanup durchführen (PRD Abschnitt 6)
 - [ ] Pull Request erstellen nach master
 
-### Aktueller Status (2026-01-28)
+### Aktueller Status (2026-01-28 - Letzte Überprüfung)
 
 **Status:** 🔴 PROJEKT BLOCKIERT - Cluster-Zugriff erforderlich
+
+**Letzter Check (2026-01-28):**
+- ❌ kubectl cluster-info: Error - "server doesn't have a resource type services"
+- ❌ ~/.kube/config: Datei ist leer (keine Cluster-Konfiguration)
+- ❌ .env Datei existiert nicht (DIGITALOCEAN_TOKEN fehlt)
+- ℹ️  .env.example vorhanden (Template für Token-Konfiguration)
 
 **Konfiguration:** ✅ VOLLSTÄNDIG
 Alle cert-manager Konfigurationsdateien sind erstellt und deployment-ready:
@@ -169,7 +175,7 @@ Alle cert-manager Konfigurationsdateien sind erstellt und deployment-ready:
 - ❌ Kubernetes Cluster nicht erreichbar
 - ❌ kubectl cluster-info schlägt fehl
 - ❌ kubeconfig ungültig/leer
-- ❌ DigitalOcean API Token abgelaufen
+- ❌ DigitalOcean API Token nicht konfiguriert (.env fehlt)
 
 **BLOCKER:**
 Gemäß PRD Abschnitt 3 ist ein funktionierender Kubernetes Cluster mit Traefik Voraussetzung.
