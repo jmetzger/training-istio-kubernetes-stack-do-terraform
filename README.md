@@ -153,9 +153,75 @@ Der generierte private SSH-Key `id_rsa_k8s_do` wird lokal gespeichert. Bitte sic
 
 ---
 
-## 🧼 Bereinigen
+## 🧼 Destroying the Infrastructure
 
+### Prerequisites
+- `doctl` CLI installed and authenticated
+- `helm` and `kubectl` configured
+
+### Destroy Command
 ```bash
 terraform destroy -auto-approve
+```
+
+### What Happens During Destroy
+
+1. **Helm Cleanup** (30-60s)
+   - Traefik release uninstalled
+   - Calico release uninstalled
+   - LoadBalancer automatically deleted by Kubernetes
+
+2. **LoadBalancer Cleanup** (30s)
+   - Orphaned LoadBalancers removed via doctl
+   - Safety net for Helm cleanup failures
+
+3. **Droplet Deletion** (5-10m)
+   - All 4 droplets deleted
+   - SSH keys removed
+   - Project resources unbound
+
+4. **Project Cleanup** (10s)
+   - DigitalOcean project deleted
+
+**Expected Duration:** 8-12 minutes
+
+### Troubleshooting Destroy
+
+If destroy fails with timeout:
+```bash
+# Check remaining resources
+doctl compute droplet list | grep k8s-
+doctl compute load-balancer list
+
+# Manual cleanup
+doctl compute load-balancer delete <LB_ID> --force
+doctl compute droplet delete <DROPLET_ID> --force
+
+# Retry destroy
+terraform destroy
+```
+
+### doctl Installation
+
+```bash
+# Arch Linux / Manjaro
+sudo pacman -S doctl
+
+# Ubuntu / Debian
+snap install doctl
+
+# macOS
+brew install doctl
+
+# Authentifizierung
+doctl auth init
+# Token eingeben: $TF_VAR_do_token
+```
+
+### Manual Cleanup (Fallback)
+```bash
+# Alle Ressourcen manuell entfernen
 rm -f id_rsa_k8s_do id_rsa_k8s_do.pub
+rm -f terraform.tfstate terraform.tfstate.backup
+```
 
