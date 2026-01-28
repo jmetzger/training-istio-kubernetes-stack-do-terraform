@@ -609,6 +609,7 @@ spec:
 
 ### Abschluss
 - [ ] Test-Ressourcen entfernt (Cleanup durchgeführt)
+- [ ] README.md aktualisiert (cert-manager Dokumentation hinzugefügt)
 - [ ] Commit erstellt
 - [ ] Pull Request erstellt nach `master`
 
