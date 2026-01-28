@@ -5,3 +5,4 @@ id_rsa_k8s_do
 metallb-values.yaml
 *tfstate*
 ingress_ip.txt
+tfplan
