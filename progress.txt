@@ -26,3 +26,71 @@
 Alle Tasks aus dem PRD wurden erfolgreich umgesetzt.
 PR: https://github.com/jmetzger/training-istio-kubernetes-stack-do-terraform/pull/1
 
+## Terraform Rollout Status (2026-01-25)
+
+### Cluster-Typ: DigitalOcean Managed Kubernetes
+**Hinweis:** Das Projekt verwendet einen DigitalOcean Managed Kubernetes Cluster, nicht einen selbst-verwalteten Cluster mit Terraform-Droplets.
+
+### Aktueller Cluster-Status
+- ✅ Cluster erreichbar und funktionsfähig
+- ✅ kubectl Zugriff funktioniert
+- ✅ Nodes: 1 Node (default-pool-pab1r) im Status "Ready"
+- ✅ System-Pods laufen (Cilium, CoreDNS, CSI, etc.)
+
+### Traefik Deployment Status
+- ✅ Traefik Namespace: `ingress-traefik` (35 Tage alt)
+- ✅ Traefik Pod: Running (26 Tage alt)
+- ✅ Traefik Service: LoadBalancer aktiv
+- ✅ LoadBalancer IP: 206.189.251.58
+- ✅ Ports: 80:30529/TCP, 443:31377/TCP
+- ✅ ingress_ip.txt erstellt mit IP 206.189.251.58
+
+### Legacy nginx Status
+- ✅ nginx Namespace `ingress-nginx` erfolgreich entfernt (2026-01-25)
+- ✅ Alle nginx-Komponenten gelöscht
+- ✅ Cleanup abgeschlossen
+
+### Validierungs-Tests (2026-01-25)
+
+#### Funktionale Tests (PRD Abschnitt 5)
+- ✅ Test-Deployment erstellt (nginx)
+- ✅ Test-Service erstellt (ClusterIP)
+- ✅ Test-Ingress Resource erstellt (mit ingressClassName: traefik)
+- ✅ Ingress Status: ADDRESS zeigt LoadBalancer IP 206.189.251.58
+- ✅ HTTP Routing validiert: curl mit Host-Header erfolgreich
+- ✅ HTTP Status: 200 OK
+- ✅ Response: nginx Welcome-Seite korrekt angezeigt
+- ✅ Server-Header: nginx/1.29.4
+- ✅ Test-Ressourcen erfolgreich entfernt (Cleanup)
+
+#### Erfolgs-Kriterien erfüllt (PRD Abschnitt 7)
+- ✅ Cluster erreichbar (kubectl funktioniert)
+- ✅ Alle Nodes im Status "Ready"
+- ✅ Traefik Namespace existiert (`ingress-traefik`)
+- ✅ Traefik Pods im Status "Running"
+- ✅ Traefik Service existiert
+- ✅ LoadBalancer IP zugewiesen: 206.189.251.58
+- ✅ Test-Ingress erfolgreich erstellt
+- ✅ HTTP Request über Ingress erfolgreich (Status 200)
+- ✅ Routing funktioniert korrekt
+
+#### DNS Status
+- ⚠️  DNS-Record für `*.jmetzger.do.t3isp.de` nicht konfiguriert (Token expired)
+- ℹ️  Funktionale Tests mit direkter IP erfolgreich durchgeführt
+- ℹ️  DNS kann später konfiguriert werden wenn Token verfügbar ist
+
+### Cleanup durchgeführt (2026-01-25)
+- ✅ Legacy nginx Namespace `ingress-nginx` vollständig entfernt
+- ✅ Alle nginx-Komponenten gelöscht (Deployment, Service, Pods)
+- ✅ LoadBalancer 188.166.195.129 freigegeben
+
+### Verbleibende optionale Schritte
+1. Optional: DNS-Record manuell in DigitalOcean erstellen (`*.jmetzger.do.t3isp.de` → 206.189.251.58)
+2. Optional: Terraform State für Managed Cluster anpassen
+
+### Migration vollständig abgeschlossen ✅
+Alle erforderlichen Tasks aus dem PRD wurden erfolgreich umgesetzt.
+- Traefik erfolgreich deployed und funktional getestet
+- Legacy nginx vollständig entfernt
+- Cluster läuft stabil mit Traefik als einzigem Ingress Controller
+
