@@ -94,3 +94,49 @@ Alle erforderlichen Tasks aus dem PRD wurden erfolgreich umgesetzt.
 - Legacy nginx vollständig entfernt
 - Cluster läuft stabil mit Traefik als einzigem Ingress Controller
 
+---
+
+## cert-manager Deployment Status (2026-01-28)
+
+### Branch: feature/cert-manager-http01
+
+### Konfiguration vorbereitet ✅
+- ✅ helmfile.yaml erstellt mit cert-manager v1.16.3
+- ✅ Chart charts/cert-manager-config/ erstellt
+- ✅ ClusterIssuer Template für HTTP-01 Challenge erstellt
+- ✅ HTTP-01 Challenge konfiguriert (ingressClassName: traefik)
+- ✅ Email hardcoded: info@t3company.de
+- ✅ DIGITALOCEAN_TOKEN aus Konfiguration entfernt (nicht benötigt für HTTP-01)
+- ✅ values.yaml: enableHttp01: true, enableDns01: false
+- ✅ .env.example erstellt
+- ✅ CERT-MANAGER.md Dokumentation vorhanden
+
+### Cluster-Zugriff erforderlich ⚠️
+**Status:** Cluster aktuell nicht erreichbar
+
+**Grund:**
+- kubeconfig ist leer (~/.kube/config existiert aber enthält keine Konfiguration)
+- Self-managed Droplets (207.154.242.28) nicht per SSH erreichbar (Connection timeout)
+- DigitalOcean API Token abgelaufen/ungültig
+
+**Nächste Schritte (blockiert):**
+Gemäß PRD Abschnitt 3 (Terraform Rollout) wird vorausgesetzt:
+1. ⏸️ Cluster muss via `terraform apply` deployed werden
+2. ⏸️ .kube/config sollte automatisch konfiguriert werden
+3. ⏸️ Traefik Ingress Controller muss laufen
+
+**Was vorbereitet wurde (kann deployed werden sobald Cluster verfügbar):**
+1. ✅ `helmfile sync` - Wird cert-manager installieren
+2. ✅ ClusterIssuer `letsencrypt-http01` wird automatisch erstellt
+3. ✅ HTTP-01 Challenge über Traefik konfiguriert
+
+### Ausstehende Tasks (benötigen Cluster-Zugriff):
+- [ ] Cluster-Zugriff wiederherstellen (terraform apply mit gültigem DO Token)
+- [ ] helmfile sync ausführen (PRD Abschnitt 4.2)
+- [ ] cert-manager Pods verifizieren (PRD Abschnitt 5.1)
+- [ ] ClusterIssuer Ready Status prüfen (PRD Abschnitt 5.2)
+- [ ] Test-Certificate erstellen (PRD Abschnitt 5.3)
+- [ ] Test-Ingress mit TLS validieren (PRD Abschnitt 5.4)
+- [ ] Cleanup durchführen (PRD Abschnitt 6)
+- [ ] Pull Request erstellen nach master
+

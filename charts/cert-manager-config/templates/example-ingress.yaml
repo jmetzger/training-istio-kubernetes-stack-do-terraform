@@ -1,0 +1,65 @@
+{{- if .Values.createExample }}
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: example-app
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx
+  namespace: example-app
+spec:
+  ports:
+    - port: 80
+      targetPort: 80
+  selector:
+    app: nginx
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx
+  namespace: example-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nginx
+  template:
+    metadata:
+      labels:
+        app: nginx
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:alpine
+          ports:
+            - containerPort: 80
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: nginx-ingress
+  namespace: example-app
+  annotations:
+    cert-manager.io/cluster-issuer: {{ .Values.issuerName }}
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - example.{{ .Values.domain }}
+      secretName: example-tls
+  rules:
+    - host: example.{{ .Values.domain }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: nginx
+                port:
+                  number: 80
+{{- end }}

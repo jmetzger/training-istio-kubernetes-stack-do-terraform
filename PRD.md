@@ -1,241 +1,316 @@
 # Product Requirements Document (PRD)
-## Terraform Rollout und Testing
+## cert-manager Deployment mit helmfile (HTTP-01)
 
-**Version:** 2.0
-**Datum:** 2026-01-25
-**Status:** Testing Phase
+**Version:** 1.0
+**Datum:** 2026-01-28
+**Status:** Implementation
+**Branch:** feature/cert-manager-http01
 
 ---
 
 ## 1. Übersicht
 
 ### 1.1 Ziel
-Vollständiges Terraform Rollout des Kubernetes-Clusters auf DigitalOcean mit Traefik Ingress Controller und umfassende Validierung aller Komponenten.
+Deployment von cert-manager via helmfile mit HTTP-01 Challenge über Traefik Ingress Controller. Automatische Ausstellung von Let's Encrypt TLS-Zertifikaten für Kubernetes Ingress-Ressourcen.
 
-### 1.2 Infrastruktur-Kontext
-Das Kubernetes-Cluster wird über Terraform auf DigitalOcean ausgerollt. Die vollständige Infrastruktur inklusive Cluster-Provisionierung, MetalLB, DNS-Konfiguration und Traefik Ingress-Controller wird automatisiert bereitgestellt.
+### 1.2 Kontext
+Das Kubernetes-Cluster ist bereits via Terraform ausgerollt und läuft mit Traefik als Ingress Controller. cert-manager wird nach dem Terraform-Rollout manuell über helmfile installiert, um TLS-Zertifikate automatisch zu verwalten.
 
 **Voraussetzungen:**
-- **DigitalOcean Token:** Ein gültiger API-Token für DigitalOcean ist als Umgebungsvariable `DIGITALOCEAN_ACCESS_TOKEN` vorhanden
-- **Terraform:** Version >= 1.0 für das Cluster-Rollout
-- **kubectl:** Für die Validierung und das Management des Clusters
-- **Test-User:** `tln1` für DNS und Validierungstests
+- **Kubernetes Cluster:** Bereits deployed via Terraform
+- **Traefik:** Ingress Controller läuft im Namespace `ingress`
+- **.kube/config:** Automatisch konfiguriert durch `terraform apply`
+- **helmfile:** Installiert für Helm-Deployments
+- **DNS:** Wildcard `*.do.t3isp.de` zeigt auf Traefik LoadBalancer IP
+- **Email:** `info@t3company.de` (hardcoded)
 
 ---
 
-## 2. Terraform Rollout-Schritte
+## 2. Branch-Strategie
 
-### 2.1 Vorbereitung
+### 2.1 Feature-Branch
+Alle Arbeiten werden in einem separaten Feature-Branch durchgeführt:
+
 ```bash
-# Token prüfen
-echo $DIGITALOCEAN_ACCESS_TOKEN
+# Feature-Branch erstellen
+git checkout -b feature/cert-manager-http01
 
-# Arbeitsverzeichnis sicherstellen
-pwd
-# Expected: /home/jmetzger/ki-projects/training-istio-kubernetes-stack-do-terraform
+# Nach Abschluss: Pull Request erstellen
+# Ziel-Branch: master
 ```
 
-### 2.2 Terraform Initialisierung
+### 2.2 Branch-Schutz
+- Alle Änderungen via Pull Request
+- Review vor Merge
+- Tests erfolgreich
+
+---
+
+## 3. Terraform Rollout (Voraussetzung)
+
+### 3.1 Cluster bereitstellen
 ```bash
-# Terraform initialisieren
-terraform init
-
-# Provider und Module prüfen
-terraform version
-```
-
-### 2.3 Cluster Planung
-```bash
-# Änderungen planen und prüfen
-terraform plan
-
-# Erwartete Änderungen:
-# - Kubernetes Cluster (DigitalOcean)
-# - MetalLB Namespace und Deployment
-# - Traefik Ingress Controller im ingress Namespace
-# - DNS A-Records für *.tln1.do.t3isp.de
-```
-
-### 2.4 Cluster Deployment
-```bash
-# Cluster ausrollen
+# Cluster mit Traefik ausrollen
 terraform apply -auto-approve
 
 # Erwartete Ausgabe:
-# - Cluster erstellt
-# - MetalLB deployed
-# - Traefik deployed
-# - DNS konfiguriert
-# - LoadBalancer IP zugewiesen
+# - Kubernetes Cluster erstellt
+# - Traefik Ingress Controller deployed
+# - .kube/config automatisch konfiguriert
+# - DNS Records erstellt
 ```
 
-### 2.5 State-Validierung
-```bash
-# Terraform State prüfen
-terraform state list
-
-# Outputs anzeigen
-terraform output
-
-# ingress_ip.txt prüfen
-cat ingress_ip.txt
-```
-
----
-
-## 3. Deployment-Validierung
-
-### 3.1 Cluster-Konnektivität
+### 3.2 Cluster-Validierung
 ```bash
 # Cluster-Verbindung testen
 kubectl cluster-info
 
-# Nodes prüfen
-kubectl get nodes
-
-# Namespaces prüfen
-kubectl get namespaces
-```
-
-### 3.2 MetalLB Validierung
-```bash
-# MetalLB Namespace prüfen
-kubectl get ns metallb-system
-
-# MetalLB Pods prüfen
-kubectl -n metallb-system get pods
-
-# IP-Pool Status prüfen
-kubectl get ipaddresspool -n metallb-system
-
-# L2Advertisement prüfen
-kubectl get l2advertisement -n metallb-system
-
-# IPAddressPool Details
-kubectl get ipaddresspool -n metallb-system -o yaml
-```
-
-### 3.3 Traefik Validierung
-```bash
-# Traefik Namespace prüfen
-kubectl get ns ingress
-
-# Traefik Pods prüfen
+# Traefik prüfen
 kubectl -n ingress get pods
-
-# Pod Status Details
-kubectl -n ingress get pods -o wide
-
-# Service und LoadBalancer IP prüfen
 kubectl -n ingress get svc
 
-# LoadBalancer IP muss sichtbar sein (nicht <pending>)
-
-# Logs prüfen
-kubectl logs -n ingress -l app.kubernetes.io/name=traefik
-
-# Traefik Deployment prüfen
-kubectl -n ingress get deployment
-```
-
-### 3.4 CRD-Validierung
-```bash
-# Verifizieren dass KEINE Traefik CRDs installiert sind
-kubectl get crd | grep traefik
-
-# Erwartete Ausgabe: Leer (keine CRDs)
+# LoadBalancer IP muss gesetzt sein
+kubectl -n ingress get svc traefik -o jsonpath='{.status.loadBalancer.ingress[0].ip}'
 ```
 
 ---
 
-## 4. DNS und Netzwerk-Tests
+## 4. helmfile Installation
 
-### 4.1 DNS-Auflösung
+### 4.1 Vorbereitung
 ```bash
-# DNS-Auflösung testen (mit User tln1)
-dig +short app.tln1.do.t3isp.de
+# Arbeitsverzeichnis
+cd /home/jmetzger/ki-projects/training-istio-kubernetes-stack-do-terraform
 
-# Erwartete Ausgabe: Traefik LoadBalancer IP
-
-# Alternative: nslookup
-nslookup app.tln1.do.t3isp.de
-
-# Wildcard DNS testen
-dig +short test.tln1.do.t3isp.de
-dig +short demo.tln1.do.t3isp.de
+# helmfile Version prüfen
+helmfile --version
 ```
 
-### 4.2 LoadBalancer IP-Zuweisung
+### 4.2 cert-manager Deployment
 ```bash
-# LoadBalancer IP aus Service extrahieren
-TRAEFIK_IP=$(kubectl -n ingress get svc traefik -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
-echo "Traefik IP: $TRAEFIK_IP"
+# cert-manager mit helmfile installieren
+helmfile sync
 
-# IP muss gesetzt sein (nicht leer)
+# Erwartete Ausgabe:
+# - Repository jetstack added
+# - Release cert-manager installing
+# - Release cert-manager-config installing
+# - Hooks: cert-manager Pods ready
+# - Status: deployed
+```
+
+### 4.3 Installation verifizieren
+```bash
+# Namespace prüfen
+kubectl get ns cert-manager
+
+# Pods prüfen (sollten alle Running sein)
+kubectl get pods -n cert-manager
+
+# Erwartete Pods:
+# - cert-manager-xxxxx (Running)
+# - cert-manager-webhook-xxxxx (Running)
+# - cert-manager-cainjector-xxxxx (Running)
 ```
 
 ---
 
-## 5. Funktionale Tests
+## 5. Validierung
 
-### 5.1 Test-Deployment erstellen
+### 5.1 Step 1: cert-manager Pod Status
+
 ```bash
-# Einfaches nginx Test-Deployment
+# Pods im cert-manager Namespace
+kubectl get pods -n cert-manager
+
+# Pod Details
+kubectl get pods -n cert-manager -o wide
+
+# Logs prüfen (darf keine Fehler zeigen)
+kubectl logs -n cert-manager deployment/cert-manager
+
+# Erwartete Ausgabe: "controller: Finished processing work item"
+```
+
+**Erfolgs-Kriterium:**
+- ✅ Alle 3 Pods im Status "Running"
+- ✅ Keine Error-Logs
+- ✅ Ready: 1/1 für alle Pods
+
+### 5.2 Step 2: ClusterIssuer Ready Status
+
+```bash
+# ClusterIssuer auflisten
+kubectl get clusterissuer
+
+# Erwartete Ausgabe:
+# NAME                   READY   AGE
+# letsencrypt-http01     True    1m
+
+# Details prüfen
+kubectl describe clusterissuer letsencrypt-http01
+
+# ACME Server muss erreichbar sein
+# Status.Conditions.Type=Ready, Status=True
+```
+
+**Erfolgs-Kriterium:**
+- ✅ ClusterIssuer existiert: `letsencrypt-http01`
+- ✅ READY Status: `True`
+- ✅ ACME Server: `https://acme-v02.api.letsencrypt.org/directory`
+- ✅ Email: `info@t3company.de`
+- ✅ Solver: `http01` mit `ingressClassName: traefik`
+
+### 5.3 Step 3: Test-Certificate erstellen
+
+Erstelle eine Datei `test-certificate.yaml`:
+
+```yaml
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: test-cert
+  namespace: default
+spec:
+  secretName: test-tls
+  issuerRef:
+    name: letsencrypt-http01
+    kind: ClusterIssuer
+  dnsNames:
+    - app.$USER.do.t3isp.de
+```
+
+```bash
+# USER Variable setzen (aktueller eingeloggter User)
+export USER=$(whoami)
+echo "Test Domain: app.$USER.do.t3isp.de"
+
+# Certificate erstellen (Datei anpassen mit echtem User)
+kubectl apply -f test-certificate.yaml
+
+# Certificate Status beobachten
+kubectl get certificate -w
+
+# Erwartete Status-Progression:
+# test-cert   False   Issuing       10s
+# test-cert   True    Ready         45s
+
+# Details prüfen
+kubectl describe certificate test-cert
+
+# Challenge prüfen (sollte nach ~30-90 Sekunden verschwinden)
+kubectl get challenge
+```
+
+**Erfolgs-Kriterium:**
+- ✅ Certificate wechselt zu Status `Ready: True`
+- ✅ Secret `test-tls` wurde erstellt
+- ✅ Challenge wurde erfolgreich durchgeführt (HTTP-01)
+- ✅ Keine Fehler in Events
+
+**Troubleshooting:**
+```bash
+# Wenn Certificate auf False bleibt:
+kubectl get certificaterequest
+kubectl describe certificaterequest <name>
+
+kubectl get challenge
+kubectl describe challenge <name>
+
+# cert-manager Logs
+kubectl logs -n cert-manager deployment/cert-manager | grep -i error
+```
+
+### 5.4 Step 4: Test-Ingress mit TLS
+
+Erstelle zuerst ein Test-Deployment:
+
+```bash
+# nginx Test-Deployment
 kubectl create deployment test-nginx --image=nginx:latest
 
 # Service erstellen
 kubectl expose deployment test-nginx --port=80 --type=ClusterIP
 ```
 
-### 5.2 Test-Ingress Resource
 Erstelle eine Datei `test-ingress.yaml`:
+
 ```yaml
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: test-ingress
   namespace: default
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-http01"
 spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - app.$USER.do.t3isp.de
+      secretName: test-tls
   rules:
-  - host: app.tln1.do.t3isp.de
-    http:
-      paths:
-      - path: /
-        pathType: Prefix
-        backend:
-          service:
-            name: test-nginx
-            port:
-              number: 80
+    - host: app.$USER.do.t3isp.de
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: test-nginx
+                port:
+                  number: 80
 ```
 
 ```bash
-# Ingress erstellen
+# Ingress erstellen (Datei anpassen mit echtem User)
 kubectl apply -f test-ingress.yaml
 
 # Ingress Status prüfen
-kubectl get ingress
+kubectl get ingress test-ingress
 
-# Ingress Details
+# Details anzeigen
 kubectl describe ingress test-ingress
+
+# Certificate sollte automatisch erstellt werden (falls nicht schon vorhanden)
+kubectl get certificate
+
+# HTTPS Test (nach 30-90 Sekunden)
+curl -v https://app.$USER.do.t3isp.de
+
+# Erwartete Ausgabe:
+# * SSL certificate verify ok
+# * Server certificate:
+# *  subject: CN=app.$USER.do.t3isp.de
+# *  issuer: C=US; O=Let's Encrypt; CN=R10
+# < HTTP/1.1 200 OK
+# <!DOCTYPE html>
+# <html>
+# <head>
+# <title>Welcome to nginx!</title>
 ```
 
-### 5.3 HTTP Routing validieren
+**Zertifikat-Details prüfen:**
 ```bash
-# HTTP Request mit Host-Header
-curl -v -H "Host: app.tln1.do.t3isp.de" http://$TRAEFIK_IP
+# Zertifikat anzeigen
+echo | openssl s_client -servername app.$USER.do.t3isp.de -connect $(kubectl -n ingress get svc traefik -o jsonpath='{.status.loadBalancer.ingress[0].ip}'):443 2>/dev/null | openssl x509 -noout -text
 
-# Erwartete Ausgabe: nginx Welcome-Seite
-
-# Direkter Test via DNS (falls propagiert)
-curl -v http://app.tln1.do.t3isp.de
-
-# HTTP Status sollte 200 sein
+# Issuer sollte "Let's Encrypt" sein
+# Subject sollte "CN=app.$USER.do.t3isp.de" sein
+# Validity: 90 Tage
 ```
+
+**Erfolgs-Kriterium:**
+- ✅ Ingress erstellt
+- ✅ Certificate automatisch provisioniert
+- ✅ HTTPS-Zugriff funktioniert
+- ✅ Browser zeigt gültiges Let's Encrypt Zertifikat
+- ✅ Keine SSL/TLS Fehler
+- ✅ nginx Welcome-Seite sichtbar
 
 ---
 
-## 6. Aufräumen (Clean-Up)
+## 6. Cleanup
 
 ### 6.1 Test-Ressourcen entfernen
 ```bash
@@ -245,149 +320,351 @@ kubectl delete -f test-ingress.yaml
 # Test-Service und Deployment löschen
 kubectl delete service test-nginx
 kubectl delete deployment test-nginx
+
+# Test-Certificate löschen
+kubectl delete certificate test-cert
+
+# Secret wird automatisch von cert-manager entfernt
 ```
 
-### 6.2 Komplettes Cluster-Teardown (optional)
+### 6.2 cert-manager entfernen (nur bei Bedarf)
 ```bash
-# NUR wenn Cluster komplett gelöscht werden soll
-terraform destroy -auto-approve
+# ACHTUNG: Löscht cert-manager komplett!
+helmfile destroy
 
-# Achtung: Löscht das gesamte Cluster und alle Ressourcen!
+# Namespace manuell löschen (falls nötig)
+kubectl delete namespace cert-manager
 ```
 
 ---
 
-## 7. Erfolgs-Kriterien
+## 7. Troubleshooting
 
-### 7.1 Terraform Rollout
-- ✅ `terraform init` erfolgreich (ohne Fehler)
-- ✅ `terraform plan` zeigt erwartete Ressourcen
-- ✅ `terraform apply` ohne Fehler durchgelaufen
-- ✅ `terraform state list` zeigt alle Ressourcen
-- ✅ `terraform output` zeigt korrekte Werte
+### 7.1 Certificate bleibt auf "Issuing"
 
-### 7.2 Cluster-Status
-- ✅ Cluster erreichbar (kubectl Zugriff funktioniert)
-- ✅ Alle Nodes im Status "Ready"
-- ✅ Alle System-Pods laufen
+**Symptom:** Certificate Status bleibt auf `Ready: False`, Reason: `Issuing`
 
-### 7.3 MetalLB
-- ✅ MetalLB Namespace existiert (`metallb-system`)
-- ✅ MetalLB Pods im Status "Running"
-- ✅ IP-Pool konfiguriert und aktiv
-- ✅ L2Advertisement aktiv
+**Diagnose:**
+```bash
+# CertificateRequest prüfen
+kubectl get certificaterequest
+kubectl describe certificaterequest <name>
 
-### 7.4 Traefik
-- ✅ Traefik Namespace existiert (`ingress`)
-- ✅ Traefik Pods im Status "Running"
-- ✅ Traefik Service existiert
-- ✅ LoadBalancer IP erfolgreich von MetalLB zugewiesen
-- ✅ LoadBalancer IP ist nicht `<pending>` sondern eine echte IP
-- ✅ CRDs nicht installiert (verifiziert via `kubectl get crd | grep traefik`)
-- ✅ Traefik Logs zeigen keine Fehler
+# Challenge prüfen
+kubectl get challenge
+kubectl describe challenge <name>
 
-### 7.5 DNS
-- ✅ DNS A-Record zeigt auf Traefik LoadBalancer IP (`*.tln1.do.t3isp.de`)
-- ✅ `dig +short app.tln1.do.t3isp.de` liefert korrekte IP
-- ✅ Wildcard DNS funktioniert für alle Subdomains
+# Erwartete Challenge Type: HTTP-01
+# Solver sollte Ingress mit Traefik erstellen
+```
 
-### 7.6 Funktionalität
-- ✅ Test-Ingress erfolgreich erstellt
-- ✅ HTTP Request über Ingress erfolgreich (Status 200)
-- ✅ Routing funktioniert korrekt
-- ✅ nginx Welcome-Seite erreichbar über `app.tln1.do.t3isp.de`
+**Häufige Ursachen:**
+- DNS zeigt nicht auf Traefik LoadBalancer IP
+- Port 80 ist nicht erreichbar
+- Traefik IngressClass fehlt oder falsch konfiguriert
+- Let's Encrypt kann Domain nicht validieren
 
-### 7.7 Cleanup (Legacy)
-- ✅ Keine nginx Komponenten mehr im Cluster
-- ✅ Kein `ingress-nginx` Namespace vorhanden
+**Lösung:**
+```bash
+# DNS prüfen
+dig +short app.$USER.do.t3isp.de
+
+# Sollte Traefik LoadBalancer IP zeigen
+EXPECTED_IP=$(kubectl -n ingress get svc traefik -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+echo "Expected IP: $EXPECTED_IP"
+
+# Port 80 Test
+curl -v http://app.$USER.do.t3isp.de/.well-known/acme-challenge/test
+
+# IngressClass prüfen
+kubectl get ingressclass
+```
+
+### 7.2 HTTP-01 Challenge schlägt fehl
+
+**Symptom:** Challenge wird nicht gelöst, bleibt pending oder schlägt fehl
+
+**Diagnose:**
+```bash
+# Challenge Events
+kubectl describe challenge <name>
+
+# Traefik Routing prüfen
+kubectl -n ingress logs -l app.kubernetes.io/name=traefik
+
+# Challenge Ingress prüfen (temporär von cert-manager erstellt)
+kubectl get ingress -A | grep acme
+```
+
+**Häufige Ursachen:**
+- Traefik kann Challenge-Ingress nicht routen
+- DNS Propagation noch nicht abgeschlossen
+- Firewall blockiert Port 80
+- Let's Encrypt Server kann Domain nicht erreichen
+
+**Lösung:**
+```bash
+# Manueller Test der Challenge-Route
+# cert-manager erstellt temporär einen Ingress wie:
+# /.well-known/acme-challenge/<token>
+
+# Warten auf DNS Propagation (1-5 Minuten)
+watch dig +short app.$USER.do.t3isp.de
+
+# Challenge neu triggern (Certificate löschen und neu erstellen)
+kubectl delete certificate test-cert
+kubectl apply -f test-certificate.yaml
+```
+
+### 7.3 Let's Encrypt Rate Limits
+
+**Symptom:** Error: "too many certificates already issued"
+
+**Ursache:** Let's Encrypt Production Limits:
+- **5 Zertifikate pro Domain pro Woche**
+- **50 Zertifikate pro registrierter Domain pro Woche**
+
+**Lösung:**
+```bash
+# Auf Staging-Umgebung wechseln für Tests
+# In helmfile.yaml:
+values:
+  - email: "info@t3company.de"
+    server: "staging"  # Statt "prod"
+    enableHttp01: true
+
+# Neu deployen
+helmfile sync
+
+# Staging ClusterIssuer wird erstellt
+# Zertifikate von Staging werden von Browsern NICHT vertraut
+# Aber keine Rate Limits
+```
+
+### 7.4 cert-manager Pods crashen
+
+**Symptom:** Pods im Status `CrashLoopBackOff` oder `Error`
+
+**Diagnose:**
+```bash
+# Pod Status
+kubectl get pods -n cert-manager
+
+# Logs prüfen
+kubectl logs -n cert-manager deployment/cert-manager
+kubectl logs -n cert-manager deployment/cert-manager-webhook
+kubectl logs -n cert-manager deployment/cert-manager-cainjector
+
+# Events
+kubectl get events -n cert-manager --sort-by='.lastTimestamp'
+```
+
+**Häufige Ursachen:**
+- CRDs nicht installiert
+- Webhook nicht erreichbar
+- Permissions fehlen
+
+**Lösung:**
+```bash
+# CRDs prüfen
+kubectl get crd | grep cert-manager
+
+# Sollte mindestens diese CRDs zeigen:
+# - certificates.cert-manager.io
+# - certificaterequests.cert-manager.io
+# - issuers.cert-manager.io
+# - clusterissuers.cert-manager.io
+
+# Falls CRDs fehlen: helmfile neu deployen
+helmfile destroy
+helmfile sync
+```
 
 ---
 
-## 8. Troubleshooting
+## 8. Konfiguration
 
-### 8.1 LoadBalancer IP bleibt pending
-```bash
-# MetalLB Logs prüfen
-kubectl logs -n metallb-system -l app=metallb
+### 8.1 helmfile.yaml
 
-# IP-Pool Konfiguration prüfen
-kubectl get ipaddresspool -n metallb-system -o yaml
+**Wichtige Einstellungen:**
 
-# Events prüfen
-kubectl -n ingress get events --sort-by='.lastTimestamp'
+```yaml
+releases:
+  - name: cert-manager-config
+    namespace: cert-manager
+    chart: ./charts/cert-manager-config
+    needs:
+      - cert-manager/cert-manager
+    wait: true
+    values:
+      - email: "info@t3company.de"
+        server: "prod"
+        enableDns01: false
+        enableHttp01: true
 ```
 
-### 8.2 DNS funktioniert nicht
-```bash
-# DNS Terraform Output prüfen
-terraform output
+**Konfigurationsoptionen:**
+- `email`: Let's Encrypt Benachrichtigungs-Email (hardcoded)
+- `server`: `"prod"` oder `"staging"`
+- `enableDns01`: `false` (DNS-01 Challenge deaktiviert)
+- `enableHttp01`: `true` (HTTP-01 Challenge aktiviert)
 
-# DigitalOcean DNS Records manuell prüfen (via Web-Interface)
+### 8.2 ClusterIssuer Konfiguration
 
-# Warten auf DNS-Propagation (kann bis zu 5 Minuten dauern)
+Der ClusterIssuer `letsencrypt-http01` wird automatisch erstellt:
+
+```yaml
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-http01
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: info@t3company.de
+    privateKeySecretRef:
+      name: letsencrypt-http01-account-key
+    solvers:
+      - http01:
+          ingress:
+            ingressClassName: traefik
 ```
 
-### 8.3 Traefik Pods starten nicht
-```bash
-# Pod Status Details
-kubectl -n ingress describe pod <pod-name>
-
-# Logs mit Fehlersuche
-kubectl logs -n ingress <pod-name> --previous
-
-# Events im Namespace
-kubectl -n ingress get events
-```
-
-### 8.4 Terraform Apply schlägt fehl
-```bash
-# Terraform Logs mit Debug-Level
-TF_LOG=DEBUG terraform apply
-
-# State-Datei prüfen
-terraform show
-
-# Bei State-Problemen: Backend neu initialisieren
-terraform init -reconfigure
-```
+**Wichtig:**
+- `ingressClassName: traefik` - muss mit dem Ingress Controller übereinstimmen
+- `privateKeySecretRef` - Speichert den ACME Account Key persistent
 
 ---
 
-## 9. Checkliste
+## 9. Erfolgs-Kriterien
+
+### 9.1 helmfile Deployment
+- ✅ `helmfile sync` ohne Fehler durchgelaufen
+- ✅ cert-manager Namespace erstellt
+- ✅ Alle Releases deployed (cert-manager + cert-manager-config)
+
+### 9.2 cert-manager Status
+- ✅ Alle Pods im Status "Running" (cert-manager, webhook, cainjector)
+- ✅ Keine Error-Logs in Pods
+- ✅ CRDs installiert (`kubectl get crd | grep cert-manager`)
+
+### 9.3 ClusterIssuer
+- ✅ ClusterIssuer `letsencrypt-http01` existiert
+- ✅ Status: `READY = True`
+- ✅ ACME Server korrekt konfiguriert
+- ✅ Email: `info@t3company.de`
+- ✅ Solver: HTTP-01 mit Traefik IngressClass
+
+### 9.4 Test-Certificate
+- ✅ Test-Certificate erfolgreich ausgestellt
+- ✅ Status wechselt zu `Ready: True`
+- ✅ Secret `test-tls` erstellt
+- ✅ Challenge erfolgreich durchgeführt (HTTP-01)
+- ✅ Keine Fehler in Events
+
+### 9.5 Test-Ingress mit TLS
+- ✅ Test-Ingress erstellt
+- ✅ Zertifikat automatisch provisioniert
+- ✅ HTTPS-Zugriff funktioniert (`curl https://app.$USER.do.t3isp.de`)
+- ✅ Browser zeigt gültiges Let's Encrypt Zertifikat
+- ✅ Keine SSL/TLS Warnungen
+- ✅ nginx Welcome-Seite erreichbar
+
+### 9.6 Cleanup
+- ✅ Test-Ressourcen erfolgreich entfernt
+- ✅ cert-manager läuft stabil
+- ✅ Bereit für produktive Nutzung
+
+---
+
+## 10. Checkliste
 
 ### Pre-Flight Check
-- [ ] DigitalOcean Token gesetzt (`echo $DIGITALOCEAN_ACCESS_TOKEN`)
-- [ ] Terraform installiert (`terraform version`)
-- [ ] kubectl installiert (`kubectl version --client`)
-- [ ] Korrektes Arbeitsverzeichnis
+- [ ] Kubernetes Cluster deployed (`terraform apply` erfolgreich)
+- [ ] Traefik Ingress Controller läuft
+- [ ] .kube/config konfiguriert (`kubectl cluster-info` funktioniert)
+- [ ] helmfile installiert (`helmfile --version`)
+- [ ] DNS Wildcard zeigt auf Traefik LoadBalancer IP
+- [ ] Port 80 erreichbar
 
-### Terraform Rollout
-- [ ] `terraform init` erfolgreich
-- [ ] `terraform plan` geprüft
-- [ ] `terraform apply` erfolgreich
-- [ ] `terraform output` zeigt Werte
-- [ ] `ingress_ip.txt` existiert und enthält IP
+### Branch und PRD
+- [ ] Branch erstellt: `feature/cert-manager-http01`
+- [ ] Alte PRD gesichert: `PRD.backup.20260128.0750.md`
+- [ ] Neue PRD.md erstellt
 
-### Deployment Checks
-- [ ] kubectl Zugriff funktioniert
-- [ ] Alle Nodes "Ready"
-- [ ] MetalLB Pods "Running"
-- [ ] Traefik Pods "Running"
-- [ ] LoadBalancer IP zugewiesen (nicht pending)
-- [ ] Keine CRDs installiert
+### Konfiguration
+- [ ] helmfile.yaml angepasst (Email hardcoded, DIGITALOCEAN_TOKEN entfernt)
+- [ ] values.yaml konfiguriert (`enableHttp01: true`, `enableDns01: false`)
 
-### Netzwerk Checks
-- [ ] DNS-Auflösung funktioniert
-- [ ] LoadBalancer IP korrekt
-- [ ] Test-Ingress erstellt
-- [ ] HTTP Request erfolgreich (Status 200)
+### Deployment
+- [ ] `helmfile sync` erfolgreich
+- [ ] cert-manager Pods Running
+- [ ] ClusterIssuer Ready
 
-### Cleanup
-- [ ] Test-Ressourcen entfernt
-- [ ] Cluster läuft stabil (oder destroyed falls gewünscht)
+### Validierung (4 Steps)
+- [ ] **Step 1:** cert-manager Pod Status geprüft
+- [ ] **Step 2:** ClusterIssuer Ready Status verifiziert
+- [ ] **Step 3:** Test-Certificate erfolgreich ausgestellt
+- [ ] **Step 4:** Test-Ingress mit HTTPS funktioniert
+
+### Abschluss
+- [ ] Test-Ressourcen entfernt (Cleanup durchgeführt)
+- [ ] Commit erstellt
+- [ ] Pull Request erstellt nach `master`
 
 ---
 
-**Status:** Ready for Testing
-**Test-User:** tln1
-**Erstellt von:** Claude Code
+## 11. Wichtige Hinweise
+
+### Warum HTTP-01 statt DNS-01?
+
+**Vorteile HTTP-01:**
+- ✅ **Einfacher:** Kein API-Token oder DNS-Provider nötig
+- ✅ **Schneller:** Keine DNS-Propagation Wartezeit
+- ✅ **Ausreichend:** Traefik läuft, Port 80 ist offen
+- ✅ **Standard:** Funktioniert mit jedem Ingress Controller
+
+**Nachteile HTTP-01:**
+- ❌ **Keine Wildcard-Zertifikate:** Jede Subdomain braucht eigenes Cert
+- ❌ **Port 80 nötig:** Challenge läuft über HTTP (nicht HTTPS)
+- ❌ **Öffentlich erreichbar:** Domain muss von Let's Encrypt erreichbar sein
+
+**Wann DNS-01 verwenden:**
+- Wildcard-Zertifikate benötigt (`*.domain.com`)
+- Port 80 ist blockiert oder nicht verfügbar
+- Domain ist nicht öffentlich erreichbar (internal/private)
+
+### Let's Encrypt Umgebungen
+
+**Production:**
+- URL: `https://acme-v02.api.letsencrypt.org/directory`
+- Rate Limits: 5 Certs/Domain/Woche, 50 Certs/Registered Domain/Woche
+- Zertifikate werden von allen Browsern vertraut
+- **Verwendung:** Produktiv-Einsatz
+
+**Staging:**
+- URL: `https://acme-staging-v02.api.letsencrypt.org/directory`
+- Rate Limits: Sehr hoch (für Tests)
+- Zertifikate werden NICHT von Browsern vertraut
+- **Verwendung:** Tests und Entwicklung
+
+### Test-User
+
+Der Test-User wird dynamisch ermittelt:
+```bash
+export USER=$(whoami)
+echo "Test Domain: app.$USER.do.t3isp.de"
+```
+
+Für manuelle Tests mit spezifischem User:
+```bash
+export USER="tln1"
+# Dann test-certificate.yaml und test-ingress.yaml anpassen
+```
+
+---
+
+**Status:** Ready for Implementation
+**Erstellt von:** Claude Code (basierend auf Interview)
+**Branch:** feature/cert-manager-http01
+**Merge-Ziel:** master

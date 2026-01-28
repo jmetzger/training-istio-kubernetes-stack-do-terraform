@@ -1,0 +1,22 @@
+{{- if .Values.enableDns01 }}
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: {{ .Values.issuerName }}-dns01
+spec:
+  acme:
+    {{- if eq .Values.server "staging" }}
+    server: https://acme-staging-v02.api.letsencrypt.org/directory
+    {{- else }}
+    server: https://acme-v02.api.letsencrypt.org/directory
+    {{- end }}
+    email: {{ .Values.email }}
+    privateKeySecretRef:
+      name: {{ .Values.issuerName }}-dns01-account-key
+    solvers:
+      - dns01:
+          digitalocean:
+            tokenSecretRef:
+              name: digitalocean-dns
+              key: access-token
+{{- end }}

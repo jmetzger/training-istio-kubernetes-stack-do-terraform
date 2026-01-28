@@ -1,0 +1,20 @@
+{{- if .Values.enableHttp01 }}
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: {{ .Values.issuerName }}-http01
+spec:
+  acme:
+    {{- if eq .Values.server "staging" }}
+    server: https://acme-staging-v02.api.letsencrypt.org/directory
+    {{- else }}
+    server: https://acme-v02.api.letsencrypt.org/directory
+    {{- end }}
+    email: {{ .Values.email }}
+    privateKeySecretRef:
+      name: {{ .Values.issuerName }}-http01-account-key
+    solvers:
+      - http01:
+          ingress:
+            ingressClassName: traefik
+{{- end }}

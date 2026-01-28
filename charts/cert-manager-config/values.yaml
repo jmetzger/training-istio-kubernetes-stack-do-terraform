@@ -1,0 +1,23 @@
+# Email for Let's Encrypt notifications
+email: "info@t3company.de"
+
+# DigitalOcean API Token for DNS-01 challenge (only needed if enableDns01=true)
+digitaloceanToken: ""
+
+# Let's Encrypt server (prod or staging)
+server: "prod"  # or "staging" for testing
+
+# ClusterIssuer name
+issuerName: "letsencrypt"
+
+# Enable DNS-01 challenge (for wildcard certs and when HTTP-01 not possible)
+enableDns01: false
+
+# Enable HTTP-01 challenge (simpler, but no wildcard certs)
+enableHttp01: true
+
+# Create example Ingress with TLS (set to true for demo)
+createExample: false
+
+# Domain for example (only used if createExample=true)
+domain: "example.do.t3isp.de"
