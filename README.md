@@ -156,8 +156,9 @@ Der generierte private SSH-Key `id_rsa_k8s_do` wird lokal gespeichert. Bitte sic
 ## 🧼 Destroying the Infrastructure
 
 ### Prerequisites
-- `doctl` CLI installed and authenticated
-- `helm` and `kubectl` configured
+- `TF_VAR_do_token` environment variable set (same as for `terraform apply`)
+- `helm` and `kubectl` configured (for Helm cleanup)
+- `doctl` will be auto-installed if not present
 
 ### Destroy Command
 ```bash
@@ -166,42 +167,79 @@ terraform destroy -auto-approve
 
 ### What Happens During Destroy
 
-1. **Helm Cleanup** (30-60s)
-   - Traefik release uninstalled
-   - Calico release uninstalled
-   - LoadBalancer automatically deleted by Kubernetes
+The destroy process uses a **5-layer cleanup solution** to prevent timeout errors:
 
-2. **LoadBalancer Cleanup** (30s)
-   - Orphaned LoadBalancers removed via doctl
-   - Safety net for Helm cleanup failures
+#### Layer 1: Extended Timeout (20 minutes)
+- Droplets have 20-minute delete timeout (increased from 10m default)
+- Provides sufficient time for all cleanup operations
 
-3. **Droplet Deletion** (5-10m)
-   - All 4 droplets deleted
-   - SSH keys removed
-   - Project resources unbound
+#### Layer 2: Helm Cleanup Hook (Pre-Destroy)
+- Automatically detects and removes ALL Helm releases
+- Dynamically determines namespaces for each release
+- Executes BEFORE droplet deletion starts
+- **Duration:** 1-3 minutes
 
-4. **Project Cleanup** (10s)
-   - DigitalOcean project deleted
+#### Layer 3: LoadBalancer Cleanup Hook (Pre-Destroy)
+- Auto-installs `doctl` if not present
+- Authenticates with DigitalOcean API using `TF_VAR_do_token`
+- Actively waits (up to 120s) until all LoadBalancers are deleted
+- Prevents "Droplet already has a pending event" errors
+- **Duration:** 1-2 minutes
 
-**Expected Duration:** 8-12 minutes
+#### Layer 4: Control Plane Stabilization Wait
+- 90-second wait after Helm cleanup
+- Gives Kubernetes time to process finalizers and propagate deletions
+- Ensures LoadBalancers are fully deprovisioned on DigitalOcean
+
+#### Layer 5: Project Resources Lifecycle
+- Project resources automatically unbound before droplet deletion
+- Clean dependency graph prevents errors
+
+**Expected Total Duration:** 8-15 minutes (depending on number of resources)
+
+### Destroy Sequence
+
+```
+terraform destroy
+    ↓
+Layer 2: Helm Cleanup (finds all releases, uninstalls)
+    ↓
+Layer 4: Wait 90s (Control Plane stabilization)
+    ↓
+Layer 3: LoadBalancer Cleanup (waits until all LBs deleted)
+    ↓
+Layer 1: Droplets deleted (with 20m timeout)
+    ↓
+Layer 5: Project resources cleaned up
+    ↓
+Complete ✅
+```
 
 ### Troubleshooting Destroy
 
-If destroy fails with timeout:
+#### If destroy fails with timeout
+
+1. **Check remaining resources:**
 ```bash
-# Check remaining resources
 doctl compute droplet list | grep k8s-
 doctl compute load-balancer list
-
-# Manual cleanup
-doctl compute load-balancer delete <LB_ID> --force
-doctl compute droplet delete <DROPLET_ID> --force
-
-# Retry destroy
-terraform destroy
 ```
 
-### doctl Installation
+2. **Manual cleanup:**
+```bash
+# Delete remaining LoadBalancers
+doctl compute load-balancer delete <LB_ID> --force
+
+# Delete remaining Droplets
+doctl compute droplet delete <DROPLET_ID> --force
+```
+
+3. **Retry destroy:**
+```bash
+terraform destroy -auto-approve
+```
+
+#### If doctl is not found (should not happen - auto-installs)
 
 ```bash
 # Arch Linux / Manjaro
@@ -213,15 +251,61 @@ snap install doctl
 # macOS
 brew install doctl
 
-# Authentifizierung
-doctl auth init
-# Token eingeben: $TF_VAR_do_token
+# Manual download (auto-install uses this)
+cd /tmp
+wget https://github.com/digitalocean/doctl/releases/download/v1.115.0/doctl-1.115.0-linux-amd64.tar.gz
+tar xf doctl-*.tar.gz
+sudo mv doctl /usr/local/bin/
+```
+
+#### Understanding the cleanup logs
+
+During `terraform destroy`, you will see:
+```
+[Layer 2] Starting Helm Cleanup...
+Found Helm releases, removing...
+Uninstalling traefik from namespace ingress
+Uninstalling cert-manager from namespace cert-manager
+[Layer 4] Waiting 90 seconds for Control Plane stabilization...
+[Layer 2 + 4] Helm cleanup and stabilization complete.
+
+[Layer 3] Starting LoadBalancer Cleanup...
+Waiting for 1 LoadBalancer(s) to be deleted... (0/120 seconds)
+Waiting for 1 LoadBalancer(s) to be deleted... (10/120 seconds)
+All LoadBalancers deleted successfully
+[Layer 3] LoadBalancer cleanup complete.
+
+digitalocean_droplet.k8s_nodes[0]: Destroying... [id=123456789]
+...
 ```
 
 ### Manual Cleanup (Fallback)
 ```bash
-# Alle Ressourcen manuell entfernen
+# Remove local files
 rm -f id_rsa_k8s_do id_rsa_k8s_do.pub
 rm -f terraform.tfstate terraform.tfstate.backup
+
+# Remove kubeconfig
+rm -f ~/.kube/config
 ```
+
+### Why This Solution?
+
+Previous destroy attempts failed with:
+```
+Error: Error destroying droplet: DELETE https://api.digitalocean.com/v2/droplets/123456:
+422 Droplet already has a pending event.
+```
+
+**Root Cause:**
+- Kubernetes LoadBalancer Services (Traefik) block droplet deletion
+- DigitalOcean API prevents droplet deletion while LoadBalancers exist
+- Standard timeout (10m) was insufficient for full cleanup
+
+**Solution:**
+- Multi-layer approach ensures all dependencies are cleaned up sequentially
+- Extended timeout provides buffer for slow operations
+- Active waiting (Layer 3) ensures LoadBalancers are truly gone before droplet deletion
+
+For full technical details, see `PRD.md`.
 
