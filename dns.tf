@@ -18,7 +18,7 @@ resource "null_resource" "make_get_ingress_ip_executable" {
 
 
 data "external" "ingress_data" {
-  depends_on = [null_resource.run_join_script,null_resource.make_get_ingress_ip_executable]
+  depends_on = [null_resource.run_helm_install, null_resource.make_get_ingress_ip_executable]
   program = ["scripts/tools/get_ingress_ip.sh"]
 }
 

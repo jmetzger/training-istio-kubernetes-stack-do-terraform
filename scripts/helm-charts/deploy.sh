@@ -2,6 +2,8 @@
 
 echo "Script runs here "$(pwd)
 
+# Remove old ingress_ip.txt to prevent caching issues
+rm -f ./ingress_ip.txt
 
 # Needs to get executed from terraform !!!
 INGRESS_NAMESPACE=ingress
