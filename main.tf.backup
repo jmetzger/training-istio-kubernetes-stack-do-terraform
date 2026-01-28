@@ -45,88 +45,6 @@ resource "digitalocean_ssh_key" "k8s_ssh" {
 }
 
 # -----------------------------
-# PRE-DESTROY CLEANUP HOOKS
-# -----------------------------
-
-# Layer 2: Helm Cleanup Hook (Kubernetes-Ebene)
-resource "null_resource" "pre_destroy_helm_cleanup" {
-  triggers = {
-    control_plane_ip = digitalocean_droplet.k8s_nodes[0].ipv4_address
-  }
-
-  provisioner "local-exec" {
-    when    = destroy
-    command = <<-EOT
-      export KUBECONFIG=/home/jmetzger/.kube/config
-
-      echo "[Layer 2] Starting Helm Cleanup..."
-
-      # Helm Releases auflisten und löschen
-      if helm list -A -q 2>/dev/null | grep -q .; then
-        echo "Found Helm releases, removing..."
-        helm list -A -q | xargs -r -I {} sh -c 'NS=$(helm list -A | grep {} | awk "{print \$2}"); echo "Uninstalling {} from namespace $NS"; helm uninstall {} -n $NS --wait --timeout 5m' || true
-      else
-        echo "No Helm releases found"
-      fi
-
-      # Layer 4: Control Plane Stabilization Wait (90 Sekunden)
-      echo "[Layer 4] Waiting 90 seconds for Control Plane stabilization..."
-      sleep 90
-      echo "[Layer 2 + 4] Helm cleanup and stabilization complete."
-    EOT
-
-    on_failure = continue
-  }
-}
-
-# Layer 3: LoadBalancer Cleanup Hook (Cloud-Ebene)
-resource "null_resource" "pre_destroy_lb_cleanup" {
-  depends_on = [null_resource.pre_destroy_helm_cleanup]
-
-  triggers = {
-    control_plane_ip = digitalocean_droplet.k8s_nodes[0].ipv4_address
-    do_token        = var.do_token
-  }
-
-  provisioner "local-exec" {
-    when    = destroy
-    command = <<-EOT
-      echo "[Layer 3] Starting LoadBalancer Cleanup..."
-
-      # doctl installieren (falls nicht vorhanden)
-      if ! command -v doctl &> /dev/null; then
-        echo "Installing doctl..."
-        cd /tmp
-        wget -q https://github.com/digitalocean/doctl/releases/download/v1.115.0/doctl-1.115.0-linux-amd64.tar.gz
-        tar xf doctl-*.tar.gz
-        sudo mv doctl /usr/local/bin/
-      fi
-
-      # Authenticate
-      doctl auth init --access-token ${self.triggers.do_token}
-
-      # LoadBalancer prüfen und warten
-      MAX_WAIT=120
-      ELAPSED=0
-      while [ $ELAPSED -lt $MAX_WAIT ]; do
-        LB_COUNT=$(doctl compute load-balancer list --format ID --no-header 2>/dev/null | wc -l)
-        if [ "$LB_COUNT" -eq 0 ]; then
-          echo "All LoadBalancers deleted successfully"
-          break
-        fi
-        echo "Waiting for $LB_COUNT LoadBalancer(s) to be deleted... ($ELAPSED/$MAX_WAIT seconds)"
-        sleep 10
-        ELAPSED=$((ELAPSED + 10))
-      done
-
-      echo "[Layer 3] LoadBalancer cleanup complete."
-    EOT
-
-    on_failure = continue
-  }
-}
-
-# -----------------------------
 # DROPLETS
 # -----------------------------
 resource "digitalocean_droplet" "k8s_nodes" {
@@ -137,16 +55,6 @@ resource "digitalocean_droplet" "k8s_nodes" {
   image              = "ubuntu-24-04-x64"
   ssh_keys           = [digitalocean_ssh_key.k8s_ssh.id]
   user_data          = file("cloud-init/setup-k8s-node.sh")
-
-  # Layer 1: TIMEOUT CONFIGURATION
-  timeouts {
-    delete = "20m"  # Erhöht von Standard 10m auf 20m
-  }
-
-  # WICHTIG: KEIN depends_on hier!
-  # Die Abhängigkeit wird durch trigger in pre_destroy_helm_cleanup erzeugt
-  # (trigger auf k8s_nodes[0].ipv4_address)
-  # Ein depends_on hier würde Cycle Error verursachen
 }
 
 # -----------------------------
@@ -162,11 +70,6 @@ resource "digitalocean_project" "k8s_project" {
 resource "digitalocean_project_resources" "project_binding" {
   project   = digitalocean_project.k8s_project.id
   resources = [for d in digitalocean_droplet.k8s_nodes : d.urn]
-
-  # Layer 5: Project Resources Lifecycle
-  lifecycle {
-    prevent_destroy = false  # Erlaubt Terraform, Project Resources zu löschen
-  }
 }
 
 # -----------------------------
