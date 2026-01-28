@@ -167,6 +167,11 @@ Es gibt keine weiteren ausstehenden Tasks.
 - Status: Bereit für Review und Merge
 - URL: https://github.com/jmetzger/training-istio-kubernetes-stack-do-terraform/pull/1
 
+### Abschließende Änderungen (2026-01-28)
+- ✅ PRD.md Checklist aktualisiert (README.md Update-Schritt hinzugefügt)
+- ✅ Commit erstellt: "Update PRD.md checklist: Add README.md update step"
+- ✅ Alle Änderungen committed
+
 ---
 
 ## Terraform Rollout Status (2026-01-25)
