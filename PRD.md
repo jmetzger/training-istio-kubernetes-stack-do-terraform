@@ -48,6 +48,24 @@ git checkout -b feature/cert-manager-http01
 
 ## 3. Terraform Rollout (Voraussetzung)
 
+### 3.0 Umgebungsvariablen
+
+Die DigitalOcean API-Authentifizierung erfolgt über eine Umgebungsvariable:
+
+```bash
+# TF_VAR_do_token setzen
+export TF_VAR_do_token="your-digitalocean-api-token"
+
+# WICHTIG: Diese Variable wird von Terraform UND dem DigitalOcean Provider verwendet
+# TF_VAR_do_token = DIGITALOCEAN_ACCESS_TOKEN
+# Beide Namen referenzieren den gleichen API-Token
+```
+
+**Hinweis:**
+- `TF_VAR_do_token` ist die Terraform-Variable (definiert in `variables.tf`)
+- Diese wird intern als `DIGITALOCEAN_ACCESS_TOKEN` vom DigitalOcean Provider verwendet
+- Es ist EINE Variable mit zwei Namen/Verwendungszwecken
+
 ### 3.1 Cluster bereitstellen
 ```bash
 # Cluster mit Traefik ausrollen
@@ -580,6 +598,7 @@ spec:
 ## 10. Checkliste
 
 ### Pre-Flight Check
+- [ ] **TF_VAR_do_token** Umgebungsvariable gesetzt (= DIGITALOCEAN_ACCESS_TOKEN)
 - [ ] Kubernetes Cluster deployed (`terraform apply` erfolgreich)
 - [ ] Traefik Ingress Controller läuft
 - [ ] .kube/config konfiguriert (`kubectl cluster-info` funktioniert)
