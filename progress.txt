@@ -154,6 +154,22 @@ Sobald Cluster-Zugriff verfügbar ist, können folgende Schritte ohne Anpassunge
 - [ ] Pull Request erstellen nach master
 
 ### Nächster Schritt
-**Wartet auf:** Gültigen DigitalOcean API Token + Cluster-Deployment
-**Dann:** Direkt mit `helmfile sync` fortfahren (PRD Abschnitt 4.2)
+**Status:** 🔴 BLOCKIERT - Cluster nicht erreichbar (2026-01-28 09:00)
+
+**BLOCKER:**
+Alle Vorbereitungen für cert-manager Deployment sind abgeschlossen, aber das Kubernetes Cluster ist nicht erreichbar.
+
+**Cluster-Status Prüfung (2026-01-28 09:00):**
+- ❌ kubectl cluster-info: Fehler "server doesn't have a resource type"
+- ❌ kubectl get nodes: Nicht erreichbar
+- ❌ kubeconfig: Ungültig oder leer
+
+**Erforderliche Maßnahmen (durch User):**
+1. ⚠️ Gültigen DIGITALOCEAN_TOKEN bereitstellen
+2. ⚠️ `terraform apply` ausführen um Cluster zu deployen
+3. ⚠️ Sicherstellen dass .kube/config automatisch konfiguriert wird
+4. ⚠️ Verifizieren dass Traefik Ingress Controller läuft (kubectl -n ingress get pods)
+
+**Nach Cluster-Wiederherstellung:**
+Nächster Task: `helmfile sync` (PRD Abschnitt 4.2) - Konfiguration ist bereit!
 
