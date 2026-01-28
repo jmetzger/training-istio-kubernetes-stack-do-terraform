@@ -37,7 +37,9 @@ networking:
   podSubnet: "192.168.0.0/16"  # z. B. für Flannel
 apiServer:
   certSANs:
-    - $CP_IP  # Allow to connect to public ip
+    - $CP_IP          # öffentliche IP
+    - $CP_IP_PRIVATE  # private IP
+    - "127.0.0.1"     # localhost
 CONFIG
 
 kubeadm init --config=tmp_init_config.yaml
@@ -91,7 +93,11 @@ mkdir -p ~/.kube
 scp -o StrictHostKeyChecking=no -i $KEY root@$CP_IP:/etc/kubernetes/admin.conf ~/.kube/config
 chmod 600 ~/.kube/config
 
-echo "[INFO] kubeconfig wurde unter ~/.kube/config gespeichert"
+# Ersetze die private IP durch die öffentliche IP in der kubeconfig
+echo "[INFO] Passe kubeconfig an: Ersetze private IP ($CP_IP_PRIVATE) durch öffentliche IP ($CP_IP)..."
+sed -i "s|https://$CP_IP_PRIVATE:6443|https://$CP_IP:6443|g" ~/.kube/config
+
+echo "[INFO] kubeconfig wurde unter ~/.kube/config gespeichert und für externe Nutzung angepasst"
 
 # Teste kubectl Zugriff
 if kubectl version --client &>/dev/null && kubectl get nodes &>/dev/null; then
