@@ -10,6 +10,8 @@
 - README.md aktualisiert mit Destroy-Dokumentation
 - doctl Installation dokumentiert
 - Commit erstellt: "Implement multi-layer Droplet deletion timeout fix"
+- PRD.md erstellt: Droplet Deletion Timeout Fix (mit Erfolgskriterien)
+- Alte PRD.md archiviert: PRD.cert-manager-http01-archive.md
 
 ## In Arbeit
 -
