@@ -16,6 +16,7 @@ Dieses Repository automatisiert den Aufbau eines selbstverwalteten Kubernetes-Cl
 - DigitalOcean-Account + API Token (über Umgebungsvariable setzen mit `export TF_VAR_do_token="<your_token>"`)
 - Domain wie `do.t3isp.de` in DigitalOcean DNS verwaltet
 - `terraform`, `jq`, `ssh`, `scp` lokal installiert
+- `helmfile` (optional, für cert-manager Deployment)
 - SSH-Zugriff auf erzeugte Droplets (automatisch eingerichtet)
 
 ---
@@ -91,6 +92,50 @@ kubectl get ipaddresspool -n metallb-system
 # Traefik Ingress Controller prüfen
 kubectl -n ingress get pods
 kubectl -n ingress get svc
+```
+
+---
+
+## 📦 Helmfile Deployment (cert-manager)
+
+Nach dem erfolgreichen Terraform-Setup kann zusätzlich cert-manager über helmfile installiert werden.
+
+### Was macht helmfile sync?
+
+`helmfile sync` deployed alle in der `helmfile.yaml` definierten Helm Releases:
+- **cert-manager** (Jetstack): Automatisiertes TLS-Zertifikatmanagement
+- **cert-manager-config**: ClusterIssuer für Let's Encrypt (HTTP-01 Challenge)
+
+### Wann sollte helmfile sync verwendet werden?
+
+- **Initial**: Nach `terraform apply`, sobald der Cluster läuft
+- **Updates**: Nach Änderungen an `helmfile.yaml` oder `charts/`
+- **Reparatur**: Wenn cert-manager-Ressourcen fehlen oder inkonsistent sind
+
+### Anwendung
+
+```bash
+# Voraussetzung: helmfile installiert (https://helmfile.readthedocs.io/)
+# Deploye alle Releases
+helmfile sync
+
+# Nur bestimmtes Release deployen
+helmfile -l name=cert-manager sync
+
+# Dry-run (zeigt was passieren würde)
+helmfile diff
+```
+
+### Was wird deployed?
+
+```bash
+# Nach helmfile sync prüfen
+kubectl get pods -n cert-manager
+kubectl get clusterissuer
+
+# Erwartete Ausgabe:
+# - cert-manager, cert-manager-webhook, cert-manager-cainjector Pods
+# - ClusterIssuer: letsencrypt-prod
 ```
 
 ---
