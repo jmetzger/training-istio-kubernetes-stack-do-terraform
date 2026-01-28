@@ -153,30 +153,48 @@ Sobald Cluster-Zugriff verfügbar ist, können folgende Schritte ohne Anpassunge
 - [ ] Cleanup durchführen (PRD Abschnitt 6)
 - [ ] Pull Request erstellen nach master
 
-### Nächster Schritt
-**Status:** 🔴 BLOCKIERT - Cluster nicht erreichbar (2026-01-28 09:15)
+### Aktueller Status (2026-01-28)
+
+**Status:** 🔴 PROJEKT BLOCKIERT - Cluster-Zugriff erforderlich
+
+**Konfiguration:** ✅ VOLLSTÄNDIG
+Alle cert-manager Konfigurationsdateien sind erstellt und deployment-ready:
+- ✅ helmfile.yaml mit cert-manager v1.16.3
+- ✅ charts/cert-manager-config/ Chart mit HTTP-01 ClusterIssuer
+- ✅ values.yaml konfiguriert (HTTP-01 enabled, DNS-01 disabled)
+- ✅ Templates für letsencrypt-http01 ClusterIssuer
+- ✅ ingressClassName: traefik korrekt gesetzt
+
+**Deployment:** 🔴 BLOCKIERT
+- ❌ Kubernetes Cluster nicht erreichbar
+- ❌ kubectl cluster-info schlägt fehl
+- ❌ kubeconfig ungültig/leer
+- ❌ DigitalOcean API Token abgelaufen
 
 **BLOCKER:**
-Alle Vorbereitungen für cert-manager Deployment sind abgeschlossen, aber das Kubernetes Cluster ist nicht erreichbar.
+Gemäß PRD Abschnitt 3 ist ein funktionierender Kubernetes Cluster mit Traefik Voraussetzung.
+Das Cluster muss deployed sein bevor cert-manager installiert werden kann.
 
-**Cluster-Status Prüfung (2026-01-28 09:15):**
-- ❌ kubectl cluster-info: Fehler "server doesn't have a resource type"
-- ❌ kubectl get nodes: Nicht erreichbar
-- ❌ kubeconfig: Ungültig oder leer
-- ✅ cert-manager Konfiguration vollständig vorbereitet und bereit
-- ✅ helmfile.yaml, Charts, Templates alle erstellt
+**Erforderliche User-Aktionen:**
+1. ⚠️ Gültigen DIGITALOCEAN_TOKEN bereitstellen (für DO API Zugriff)
+2. ⚠️ `terraform apply -auto-approve` ausführen (deployed Cluster + Traefik)
+3. ⚠️ Verifizieren: `kubectl cluster-info` funktioniert
+4. ⚠️ Verifizieren: `kubectl -n ingress get pods` zeigt Traefik Running
 
-**Erforderliche Maßnahmen (durch User):**
-1. ⚠️ Gültigen DIGITALOCEAN_TOKEN bereitstellen
-2. ⚠️ `terraform apply` ausführen um Cluster zu deployen
-3. ⚠️ Sicherstellen dass .kube/config automatisch konfiguriert wird
-4. ⚠️ Verifizieren dass Traefik Ingress Controller läuft (kubectl -n ingress get pods)
+**Nächster Task nach Cluster-Wiederherstellung:**
+→ helmfile sync (PRD Abschnitt 4.2) - Installation von cert-manager
 
-**Nach Cluster-Wiederherstellung:**
-Nächster Task: `helmfile sync` (PRD Abschnitt 4.2) - Konfiguration ist deployment-ready!
+**Verbleibende Tasks (PRD Checkliste Abschnitt 10):**
+- [ ] Deployment: helmfile sync ausführen (PRD 4.2)
+- [ ] Validierung Step 1: cert-manager Pods prüfen (PRD 5.1)
+- [ ] Validierung Step 2: ClusterIssuer Ready Status (PRD 5.2)
+- [ ] Validierung Step 3: Test-Certificate erstellen (PRD 5.3)
+- [ ] Validierung Step 4: Test-Ingress mit TLS (PRD 5.4)
+- [ ] Cleanup: Test-Ressourcen entfernen (PRD 6.1)
+- [ ] Pull Request erstellen nach master
 
-**Projekt-Status:**
-Die cert-manager Integration ist vollständig vorbereitet. Alle Dateien, Templates und
-Konfigurationen sind erstellt und entsprechen den PRD-Anforderungen. Das Projekt wartet
-nur noch auf einen funktionierenden Cluster-Zugriff für das Deployment.
+**Zusammenfassung:**
+Die cert-manager Integration ist vollständig vorbereitet und wartet auf Cluster-Zugriff.
+Sobald das Cluster läuft, kann das Deployment ohne weitere Konfigurationsänderungen
+durchgeführt werden. Alle Dateien entsprechen den PRD-Anforderungen.
 
