@@ -45,57 +45,6 @@ resource "digitalocean_ssh_key" "k8s_ssh" {
 }
 
 # -----------------------------
-# PRE-DESTROY CLEANUP HOOKS
-# -----------------------------
-
-# Layer 2: Helm Cleanup Hook (Kubernetes-Ebene)
-resource "null_resource" "pre_destroy_helm_cleanup" {
-  triggers = {
-    control_plane_ip = digitalocean_droplet.k8s_nodes[0].ipv4_address
-  }
-
-  provisioner "local-exec" {
-    when    = destroy
-    command = <<EOT
-      echo "[1/3] Cleaning up Helm releases..."
-      helm uninstall traefik -n ingress --wait --timeout 5m || true
-      helm uninstall calico -n calico-system --wait --timeout 5m || true
-      sleep 30
-      echo "[1/3] Helm cleanup done."
-    EOT
-
-    on_failure = continue
-  }
-}
-
-# Layer 3: LoadBalancer Cleanup Hook (Cloud-Ebene)
-resource "null_resource" "pre_destroy_lb_cleanup" {
-  depends_on = [null_resource.pre_destroy_helm_cleanup]
-
-  triggers = {
-    project_id = digitalocean_project.k8s_project.id
-  }
-
-  provisioner "local-exec" {
-    when    = destroy
-    command = <<EOT
-      echo "[2/3] Cleaning up orphaned LoadBalancers..."
-
-      # LoadBalancers mit Namen traefik/ingress löschen
-      doctl compute load-balancer list --format ID,Name --no-header | \
-        grep -E "(traefik|ingress)" | \
-        awk '{print $1}' | \
-        xargs -I {} sh -c 'echo "Deleting LB: {}" && doctl compute load-balancer delete {} --force' || true
-
-      sleep 30
-      echo "[2/3] LoadBalancer cleanup done."
-    EOT
-
-    on_failure = continue
-  }
-}
-
-# -----------------------------
 # DROPLETS
 # -----------------------------
 resource "digitalocean_droplet" "k8s_nodes" {
@@ -106,17 +55,6 @@ resource "digitalocean_droplet" "k8s_nodes" {
   image              = "ubuntu-24-04-x64"
   ssh_keys           = [digitalocean_ssh_key.k8s_ssh.id]
   user_data          = file("cloud-init/setup-k8s-node.sh")
-
-  # TIMEOUT CONFIGURATION - Layer 1
-  timeouts {
-    delete = "20m"  # Erhöht von Standard 10m auf 20m
-  }
-
-  # Dependencies: Warte auf Cleanup-Hooks vor Droplet-Löschung
-  depends_on = [
-    null_resource.pre_destroy_helm_cleanup,
-    null_resource.pre_destroy_lb_cleanup
-  ]
 }
 
 # -----------------------------
@@ -132,11 +70,6 @@ resource "digitalocean_project" "k8s_project" {
 resource "digitalocean_project_resources" "project_binding" {
   project   = digitalocean_project.k8s_project.id
   resources = [for d in digitalocean_droplet.k8s_nodes : d.urn]
-
-  # Project Resources werden VOR Droplets gelöscht
-  lifecycle {
-    create_before_destroy = false
-  }
 }
 
 # -----------------------------
