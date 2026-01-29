@@ -8,7 +8,7 @@ digitaloceanToken: ""
 server: "prod"  # or "staging" for testing
 
 # ClusterIssuer name
-issuerName: "letsencrypt"
+issuerName: "letsencrypt-prod"
 
 # Enable DNS-01 challenge (for wildcard certs and when HTTP-01 not possible)
 enableDns01: false
