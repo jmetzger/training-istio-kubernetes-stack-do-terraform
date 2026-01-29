@@ -56,23 +56,12 @@ resource "null_resource" "pre_destroy_helm_cleanup" {
 
   provisioner "local-exec" {
     when    = destroy
-    command = <<-EOT
-      export KUBECONFIG=/home/jmetzger/.kube/config
-
-      echo "[Layer 2] Starting Helm Cleanup..."
-
-      # Helm Releases auflisten und löschen
-      if helm list -A -q 2>/dev/null | grep -q .; then
-        echo "Found Helm releases, removing..."
-        helm list -A -q | xargs -r -I {} sh -c 'NS=$(helm list -A | grep {} | awk "{print \$2}"); echo "Uninstalling {} from namespace $NS"; helm uninstall {} -n $NS --wait --timeout 5m' || true
-      else
-        echo "No Helm releases found"
-      fi
-
-      # Layer 4: Control Plane Stabilization Wait (90 Sekunden)
-      echo "[Layer 4] Waiting 90 seconds for Control Plane stabilization..."
-      sleep 90
-      echo "[Layer 2 + 4] Helm cleanup and stabilization complete."
+    command = <<EOT
+      echo "[1/3] Cleaning up Helm releases..."
+      helm uninstall traefik -n ingress --wait --timeout 5m || true
+      helm uninstall calico -n calico-system --wait --timeout 5m || true
+      sleep 30
+      echo "[1/3] Helm cleanup done."
     EOT
 
     on_failure = continue
@@ -84,41 +73,22 @@ resource "null_resource" "pre_destroy_lb_cleanup" {
   depends_on = [null_resource.pre_destroy_helm_cleanup]
 
   triggers = {
-    do_token = var.do_token
+    project_id = digitalocean_project.k8s_project.id
   }
 
   provisioner "local-exec" {
     when    = destroy
-    command = <<-EOT
-      echo "[Layer 3] Starting LoadBalancer Cleanup..."
+    command = <<EOT
+      echo "[2/3] Cleaning up orphaned LoadBalancers..."
 
-      # doctl installieren (falls nicht vorhanden)
-      if ! command -v doctl &> /dev/null; then
-        echo "Installing doctl..."
-        cd /tmp
-        wget -q https://github.com/digitalocean/doctl/releases/download/v1.115.0/doctl-1.115.0-linux-amd64.tar.gz
-        tar xf doctl-*.tar.gz
-        sudo mv doctl /usr/local/bin/
-      fi
+      # LoadBalancers mit Namen traefik/ingress löschen
+      doctl compute load-balancer list --format ID,Name --no-header | \
+        grep -E "(traefik|ingress)" | \
+        awk '{print $1}' | \
+        xargs -I {} sh -c 'echo "Deleting LB: {}" && doctl compute load-balancer delete {} --force' || true
 
-      # Authenticate
-      doctl auth init --access-token ${self.triggers.do_token}
-
-      # LoadBalancer prüfen und warten
-      MAX_WAIT=120
-      ELAPSED=0
-      while [ $ELAPSED -lt $MAX_WAIT ]; do
-        LB_COUNT=$(doctl compute load-balancer list --format ID --no-header 2>/dev/null | wc -l)
-        if [ "$LB_COUNT" -eq 0 ]; then
-          echo "All LoadBalancers deleted successfully"
-          break
-        fi
-        echo "Waiting for $LB_COUNT LoadBalancer(s) to be deleted... ($ELAPSED/$MAX_WAIT seconds)"
-        sleep 10
-        ELAPSED=$((ELAPSED + 10))
-      done
-
-      echo "[Layer 3] LoadBalancer cleanup complete."
+      sleep 30
+      echo "[2/3] LoadBalancer cleanup done."
     EOT
 
     on_failure = continue
@@ -137,15 +107,16 @@ resource "digitalocean_droplet" "k8s_nodes" {
   ssh_keys           = [digitalocean_ssh_key.k8s_ssh.id]
   user_data          = file("cloud-init/setup-k8s-node.sh")
 
-  # Layer 1: TIMEOUT CONFIGURATION
+  # TIMEOUT CONFIGURATION - Layer 1
   timeouts {
     delete = "20m"  # Erhöht von Standard 10m auf 20m
   }
 
-  # WICHTIG: KEIN depends_on hier!
-  # Die Abhängigkeit wird durch trigger in pre_destroy_helm_cleanup erzeugt
-  # (trigger auf k8s_nodes[0].ipv4_address)
-  # Ein depends_on hier würde Cycle Error verursachen
+  # Dependencies: Warte auf Cleanup-Hooks vor Droplet-Löschung
+  depends_on = [
+    null_resource.pre_destroy_helm_cleanup,
+    null_resource.pre_destroy_lb_cleanup
+  ]
 }
 
 # -----------------------------
@@ -162,9 +133,9 @@ resource "digitalocean_project_resources" "project_binding" {
   project   = digitalocean_project.k8s_project.id
   resources = [for d in digitalocean_droplet.k8s_nodes : d.urn]
 
-  # Layer 5: Project Resources Lifecycle
+  # Project Resources werden VOR Droplets gelöscht
   lifecycle {
-    prevent_destroy = false  # Erlaubt Terraform, Project Resources zu löschen
+    create_before_destroy = false
   }
 }
 
