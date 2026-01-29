@@ -1,578 +1,690 @@
 # Product Requirements Document (PRD)
-## Droplet Deletion Timeout Fix
+## cert-manager Deployment mit helmfile (HTTP-01)
 
 **Version:** 1.0
 **Datum:** 2026-01-28
-**Status:** Implementation Complete - Testing Required
-**Branch:** feature/fix-droplet-deletion-timeout
+**Status:** Implementation
+**Branch:** feature/cert-manager-http01
 
 ---
 
 ## 1. Übersicht
 
-### 1.1 Problem
+### 1.1 Ziel
+Deployment von cert-manager via helmfile mit HTTP-01 Challenge über Traefik Ingress Controller. Automatische Ausstellung von Let's Encrypt TLS-Zertifikaten für Kubernetes Ingress-Ressourcen.
 
-Beim Ausführen von `terraform destroy` kommt es zu Timeouts beim Löschen der DigitalOcean Droplets (Kubernetes Nodes). Die Droplets können nicht gelöscht werden, weil:
+### 1.2 Kontext
+Das Kubernetes-Cluster ist bereits via Terraform ausgerollt und läuft mit Traefik als Ingress Controller. cert-manager wird nach dem Terraform-Rollout manuell über helmfile installiert, um TLS-Zertifikate automatisch zu verwalten.
 
-1. **LoadBalancer Services** blockieren (von Traefik erstellt)
-2. **Persistent Volumes** blockieren (falls vorhanden)
-3. **Control Plane Delay** bei der Verarbeitung von Löschanfragen
-4. **Standard Timeout** von Terraform (10m) ist zu kurz
-
-**Symptom:**
-```
-Error: Error destroying droplet: DELETE https://api.digitalocean.com/v2/droplets/123456: 422 Droplet already has a pending event.
-```
-
-### 1.2 Ziel
-
-Implementierung einer Multi-Layer Lösung, die sicherstellt, dass `terraform destroy` zuverlässig alle Ressourcen löscht, ohne Timeouts oder Fehler.
-
-**Erfolgskriterium:**
-- ✅ `terraform apply` erstellt Cluster erfolgreich
-- ✅ `helmfile sync` deployed Traefik + cert-manager erfolgreich
-- ✅ `terraform destroy` löscht alle Ressourcen erfolgreich (kein Timeout)
+**Voraussetzungen:**
+- **Kubernetes Cluster:** Bereits deployed via Terraform
+- **Traefik:** Ingress Controller läuft im Namespace `ingress`
+- **.kube/config:** Automatisch konfiguriert durch `terraform apply`
+- **helmfile:** Installiert für Helm-Deployments
+- **DNS:** Wildcard `*.do.t3isp.de` zeigt auf Traefik LoadBalancer IP
+- **Email:** `info@t3company.de` (hardcoded)
 
 ---
 
-## 2. Root Cause Analysis
+## 2. Branch-Strategie
 
-### 2.1 Warum können Droplets nicht gelöscht werden?
+### 2.1 Feature-Branch
+Alle Arbeiten werden in einem separaten Feature-Branch durchgeführt:
 
-**Blockierung durch LoadBalancer:**
-- Traefik erstellt einen LoadBalancer Service
-- DigitalOcean provisiert einen echten LoadBalancer (externe IP)
-- LoadBalancer hat Dependencies auf Droplets (Firewall Rules, Backend Nodes)
-- DigitalOcean API erlaubt keine Droplet-Löschung mit aktivem LoadBalancer
-
-**Blockierung durch Persistent Volumes:**
-- PersistentVolumeClaims erstellen DigitalOcean Block Storage Volumes
-- Volumes sind an Droplets attached
-- DigitalOcean API erlaubt keine Droplet-Löschung mit attached Volumes
-
-**Control Plane Delay:**
-- Kubernetes Control Plane braucht Zeit zum Verarbeiten von Löschanfragen
-- `kubectl delete` ist asynchron (gibt sofort zurück, löscht aber später)
-- Terraform wartet nicht auf tatsächliche Löschung
-
-**Terraform Timeout:**
-- Default Timeout für Droplet deletion: 10 Minuten
-- Cleanup + Control Plane Delay kann länger dauern
-- Timeout wird überschritten → Error
-
-### 2.2 Warum reicht `helm uninstall` nicht?
-
-**Problem:**
-- `helm uninstall` löscht nur die Helm-verwalteten Ressourcen
-- LoadBalancer Services werden gelöscht, ABER:
-  - DigitalOcean API braucht 30-60 Sekunden zum Deprovisionieren
-  - Terraform wartet nicht auf DigitalOcean-seitige Löschung
-  - Droplet-Löschung startet, während LoadBalancer noch existiert → Fehler
-
-**Beispiel:**
 ```bash
-# Helm uninstall gibt sofort zurück
-helm uninstall traefik -n ingress
-# Status: uninstalled
+# Feature-Branch erstellen
+git checkout -b feature/cert-manager-http01
 
-# LoadBalancer wird gelöscht, aber DigitalOcean braucht Zeit
-kubectl get svc -n ingress traefik
-# Status: Terminating (kann 30-60s dauern)
-
-# Terraform versucht Droplets zu löschen (zu früh!)
-terraform destroy
-# Error: 422 Droplet already has a pending event
+# Nach Abschluss: Pull Request erstellen
+# Ziel-Branch: master
 ```
+
+### 2.2 Branch-Schutz
+- Alle Änderungen via Pull Request
+- Review vor Merge
+- Tests erfolgreich
 
 ---
 
-## 3. Lösung: Multi-Layer Approach
+## 3. Terraform Rollout (Voraussetzung)
 
-### 3.1 Übersicht
+### 3.0 Umgebungsvariablen
 
-Die Lösung besteht aus **5 Layern**, die sequenziell ausgeführt werden:
+Die DigitalOcean API-Authentifizierung erfolgt über eine Umgebungsvariable:
 
-```
-Layer 1: Droplet Timeouts (20 Minuten)
-   ↓
-Layer 2: Helm Cleanup Hook (Pre-Destroy)
-   ↓
-Layer 3: LoadBalancer Cleanup Hook (Pre-Destroy)
-   ↓
-Layer 4: Control Plane Stabilization Wait (90 Sekunden)
-   ↓
-Layer 5: Project Resources Lifecycle (prevent_destroy: false)
-```
-
-### 3.2 Layer 1: Droplet Timeouts
-
-**Zweck:** Ausreichend Zeit für alle Cleanup-Operationen
-
-**Implementation:**
-```hcl
-resource "digitalocean_droplet" "k8s_nodes" {
-  count = 4
-  # ... other config ...
-
-  timeouts {
-    delete = "20m"  # Erhöht von 10m (default)
-  }
-}
-```
-
-**Warum 20 Minuten?**
-- Layer 2: Helm Cleanup (~2-3 Minuten)
-- Layer 3: LoadBalancer Cleanup (~1-2 Minuten)
-- Layer 4: Control Plane Wait (90 Sekunden)
-- Buffer für DigitalOcean API Delays (~5 Minuten)
-- **Total: ~10-12 Minuten worst case**
-- 20 Minuten gibt genug Buffer
-
-### 3.3 Layer 2: Helm Cleanup Hook
-
-**Zweck:** Löscht alle Helm Releases BEVOR Droplets gelöscht werden
-
-**Implementation:**
-```hcl
-resource "null_resource" "pre_destroy_helm_cleanup" {
-  triggers = {
-    control_plane_ip = digitalocean_droplet.k8s_nodes[0].ipv4_address
-  }
-
-  provisioner "local-exec" {
-    when    = destroy
-    command = <<-EOT
-      export KUBECONFIG=/home/jmetzger/.kube/config
-
-      # Helm Releases auflisten und löschen
-      if helm list -A -q 2>/dev/null | grep -q .; then
-        helm list -A -q | xargs -r -I {} helm uninstall {} -n $(helm list -A | grep {} | awk '{print $2}')
-      fi
-
-      # 90 Sekunden warten (Control Plane Stabilization)
-      sleep 90
-    EOT
-  }
-}
-```
-
-**Warum dieser Ansatz?**
-- `when = destroy` → Läuft nur bei `terraform destroy`
-- `trigger` auf Control Plane IP → Feuert, wenn Droplets gelöscht werden sollen
-- `sleep 90` → Gibt Control Plane Zeit, LoadBalancer tatsächlich zu löschen
-- Sequenziell vor Droplet-Löschung
-
-### 3.4 Layer 3: LoadBalancer Cleanup Hook
-
-**Zweck:** Wartet, bis alle LoadBalancer wirklich gelöscht sind (DigitalOcean API)
-
-**Implementation:**
-```hcl
-resource "null_resource" "pre_destroy_lb_cleanup" {
-  depends_on = [null_resource.pre_destroy_helm_cleanup]
-
-  triggers = {
-    do_token = var.do_token
-  }
-
-  provisioner "local-exec" {
-    when    = destroy
-    command = <<-EOT
-      # doctl installieren (falls nicht vorhanden)
-      if ! command -v doctl &> /dev/null; then
-        cd /tmp
-        wget -q https://github.com/digitalocean/doctl/releases/download/v1.115.0/doctl-1.115.0-linux-amd64.tar.gz
-        tar xf doctl-*.tar.gz
-        sudo mv doctl /usr/local/bin/
-      fi
-
-      # Authenticate
-      doctl auth init --access-token ${self.triggers.do_token}
-
-      # LoadBalancer prüfen und warten
-      MAX_WAIT=120
-      ELAPSED=0
-      while [ $ELAPSED -lt $MAX_WAIT ]; do
-        LB_COUNT=$(doctl compute load-balancer list --format ID --no-header | wc -l)
-        if [ "$LB_COUNT" -eq 0 ]; then
-          echo "All LoadBalancers deleted successfully"
-          break
-        fi
-        echo "Waiting for $LB_COUNT LoadBalancer(s) to be deleted..."
-        sleep 10
-        ELAPSED=$((ELAPSED + 10))
-      done
-    EOT
-  }
-}
-```
-
-**Warum dieser Ansatz?**
-- `depends_on` → Läuft NACH Helm Cleanup (Layer 2)
-- Aktive Prüfung mit `doctl` → Wartet auf tatsächliche Löschung
-- Timeout: 120 Sekunden (ausreichend für DigitalOcean API)
-- Verhindert Race Condition zwischen Kubernetes und DigitalOcean
-
-### 3.5 Layer 4: Control Plane Stabilization Wait
-
-**Zweck:** Gibt dem Control Plane Zeit, alle Löschanfragen zu verarbeiten
-
-**Implementation:**
 ```bash
-# In Layer 2 (Helm Cleanup Hook)
-sleep 90
-```
-
-**Warum 90 Sekunden?**
-- Kubernetes Finalizers brauchen Zeit
-- LoadBalancer Service → DigitalOcean API Call → Deprovisionierung
-- Empirisch ermittelt: 60-90 Sekunden sind ausreichend
-- Verhindert "already has a pending event" Fehler
-
-### 3.6 Layer 5: Project Resources Lifecycle
-
-**Zweck:** Erlaubt Terraform, Project-bezogene Ressourcen zu löschen
-
-**Implementation:**
-```hcl
-resource "digitalocean_project_resources" "project_attach" {
-  project = digitalocean_project.training_project.id
-  resources = concat(
-    [for node in digitalocean_droplet.k8s_nodes : node.urn]
-  )
-
-  lifecycle {
-    prevent_destroy = false  # Wichtig: Erlaubt Löschung
-  }
-}
-```
-
-**Warum wichtig?**
-- Ohne `prevent_destroy = false` kann Terraform Project Resources nicht löschen
-- Project Resources müssen vor Droplets gelöscht werden
-- Verhindert Dependency-Fehler
-
----
-
-## 4. Terraform Dependency Graph
-
-### 4.1 Korrekte Abhängigkeiten
-
-```
-terraform destroy ausgeführt
-    ↓
-digitalocean_droplet.k8s_nodes[0].ipv4_address ändert sich
-    ↓
-Trigger feuert: null_resource.pre_destroy_helm_cleanup
-    ↓
-Helm Cleanup läuft (Layer 2)
-    ↓
-Control Plane Stabilization Wait (90s)
-    ↓
-depends_on: null_resource.pre_destroy_lb_cleanup (Layer 3)
-    ↓
-LoadBalancer Cleanup läuft (mit doctl Prüfung)
-    ↓
-Alle LoadBalancer weg → Hook completed
-    ↓
-Droplets können nun gelöscht werden (Layer 1: 20m timeout)
-```
-
-### 4.2 Wichtig: KEIN depends_on in Droplets
-
-**Falsch (verursacht Cycle Error):**
-```hcl
-resource "digitalocean_droplet" "k8s_nodes" {
-  # ...
-  depends_on = [
-    null_resource.pre_destroy_helm_cleanup,
-    null_resource.pre_destroy_lb_cleanup
-  ]
-}
-```
-
-**Richtig (Abhängigkeit durch Trigger):**
-```hcl
-resource "digitalocean_droplet" "k8s_nodes" {
-  # ... kein depends_on
-}
-
-resource "null_resource" "pre_destroy_helm_cleanup" {
-  triggers = {
-    control_plane_ip = digitalocean_droplet.k8s_nodes[0].ipv4_address
-  }
-}
-```
-
-**Warum?**
-- `trigger` erzeugt implizite Abhängigkeit: Droplet → Cleanup Hook
-- `depends_on` im Droplet würde umgekehrte Abhängigkeit erzeugen: Cleanup Hook → Droplet
-- Beides zusammen = Cycle Error
-
----
-
-## 5. Testing
-
-### 5.1 Test 1: Clean Path (Apply + Destroy)
-
-**Ziel:** Verifizieren, dass Cluster ohne Helm Releases sauber gelöscht werden kann
-
-**Schritte:**
-```bash
-# 1. Umgebungsvariable setzen
+# TF_VAR_do_token setzen
 export TF_VAR_do_token="your-digitalocean-api-token"
 
-# 2. Cluster erstellen
-terraform apply -auto-approve
-
-# 3. Warten auf Cluster Ready
-sleep 60
-kubectl get nodes
-
-# 4. Cluster löschen (OHNE helmfile sync)
-terraform destroy -auto-approve
+# WICHTIG: Diese Variable wird von Terraform UND dem DigitalOcean Provider verwendet
+# TF_VAR_do_token = DIGITALOCEAN_ACCESS_TOKEN
+# Beide Namen referenzieren den gleichen API-Token
 ```
 
-**Erwartetes Ergebnis:**
-- ✅ Cluster wird erstellt (4 Droplets)
-- ✅ Cluster wird gelöscht ohne Fehler
-- ✅ Kein Timeout
-- ✅ Layer 2 läuft (aber findet keine Helm Releases)
-- ✅ Layer 3 läuft (findet keine LoadBalancer)
+**Hinweis:**
+- `TF_VAR_do_token` ist die Terraform-Variable (definiert in `variables.tf`)
+- Diese wird intern als `DIGITALOCEAN_ACCESS_TOKEN` vom DigitalOcean Provider verwendet
+- Es ist EINE Variable mit zwei Namen/Verwendungszwecken
 
-**Dauer:** ~5-8 Minuten
+### 3.1 Cluster bereitstellen
+```bash
+# Cluster mit Traefik ausrollen
+terraform apply -auto-approve
+
+# Erwartete Ausgabe:
+# - Kubernetes Cluster erstellt
+# - Traefik Ingress Controller deployed
+# - .kube/config automatisch konfiguriert
+# - DNS Records erstellt
+```
+
+### 3.2 Cluster-Validierung
+```bash
+# Cluster-Verbindung testen
+kubectl cluster-info
+
+# Traefik prüfen
+kubectl -n ingress get pods
+kubectl -n ingress get svc
+
+# LoadBalancer IP muss gesetzt sein
+kubectl -n ingress get svc traefik -o jsonpath='{.status.loadBalancer.ingress[0].ip}'
+```
 
 ---
 
-### 5.2 Test 2: Full Path (Apply + Helmfile + Destroy)
+## 4. helmfile Installation
 
-**Ziel:** Verifizieren, dass Cluster mit Traefik LoadBalancer sauber gelöscht werden kann
-
-**Schritte:**
+### 4.1 Vorbereitung
 ```bash
-# 1. Umgebungsvariable setzen
-export TF_VAR_do_token="your-digitalocean-api-token"
+# Arbeitsverzeichnis
+cd /home/jmetzger/ki-projects/training-istio-kubernetes-stack-do-terraform
 
-# 2. Cluster erstellen
-terraform apply -auto-approve
+# helmfile Version prüfen
+helmfile --version
+```
 
-# 3. Warten auf Cluster Ready
-sleep 60
-kubectl get nodes
-
-# 4. Helm Releases deployen
+### 4.2 cert-manager Deployment
+```bash
+# cert-manager mit helmfile installieren
 helmfile sync
 
-# 5. Verifizieren: LoadBalancer existiert
-kubectl get svc -n ingress traefik
-# Sollte EXTERNAL-IP zeigen (DigitalOcean LoadBalancer)
+# Erwartete Ausgabe:
+# - Repository jetstack added
+# - Release cert-manager installing
+# - Release cert-manager-config installing
+# - Hooks: cert-manager Pods ready
+# - Status: deployed
+```
 
-# 6. Verifizieren: cert-manager läuft
+### 4.3 Installation verifizieren
+```bash
+# Namespace prüfen
+kubectl get ns cert-manager
+
+# Pods prüfen (sollten alle Running sein)
 kubectl get pods -n cert-manager
-# Alle Pods sollten Running sein
 
-# 7. Cluster löschen (MIT LoadBalancer)
-terraform destroy -auto-approve
-```
-
-**Erwartetes Ergebnis:**
-- ✅ Cluster wird erstellt (4 Droplets)
-- ✅ Traefik + cert-manager deployed (helmfile sync)
-- ✅ LoadBalancer Service hat EXTERNAL-IP
-- ✅ Cluster wird gelöscht ohne Fehler
-- ✅ Layer 2 läuft: Helm Releases deleted
-- ✅ Layer 3 läuft: LoadBalancer Cleanup wartet auf Löschung
-- ✅ Layer 4 läuft: Control Plane stabilisiert sich (90s)
-- ✅ Droplets werden gelöscht (innerhalb 20m timeout)
-- ✅ Kein "pending event" Error
-- ✅ Kein Timeout
-
-**Dauer:** ~10-15 Minuten
-
-**Logs beobachten:**
-```bash
-# In separatem Terminal während terraform destroy
-watch -n 5 'doctl compute load-balancer list'
-# Sollte LoadBalancer zeigen, dann verschwinden
-
-watch -n 5 'kubectl get svc -n ingress'
-# Sollte Terminating zeigen, dann verschwinden
+# Erwartete Pods:
+# - cert-manager-xxxxx (Running)
+# - cert-manager-webhook-xxxxx (Running)
+# - cert-manager-cainjector-xxxxx (Running)
 ```
 
 ---
 
-### 5.3 Test 3: Edge Case (Control Plane Failure Scenario)
+## 5. Validierung
 
-**Ziel:** Verifizieren, dass Cleanup auch funktioniert, wenn Control Plane nicht erreichbar ist
+### 5.1 Step 1: cert-manager Pod Status
 
-**Schritte:**
 ```bash
-# 1. Cluster erstellen + helmfile sync
-terraform apply -auto-approve
+# Pods im cert-manager Namespace
+kubectl get pods -n cert-manager
+
+# Pod Details
+kubectl get pods -n cert-manager -o wide
+
+# Logs prüfen (darf keine Fehler zeigen)
+kubectl logs -n cert-manager deployment/cert-manager
+
+# Erwartete Ausgabe: "controller: Finished processing work item"
+```
+
+**Erfolgs-Kriterium:**
+- ✅ Alle 3 Pods im Status "Running"
+- ✅ Keine Error-Logs
+- ✅ Ready: 1/1 für alle Pods
+
+### 5.2 Step 2: ClusterIssuer Ready Status
+
+```bash
+# ClusterIssuer auflisten
+kubectl get clusterissuer
+
+# Erwartete Ausgabe:
+# NAME                   READY   AGE
+# letsencrypt-http01     True    1m
+
+# Details prüfen
+kubectl describe clusterissuer letsencrypt-http01
+
+# ACME Server muss erreichbar sein
+# Status.Conditions.Type=Ready, Status=True
+```
+
+**Erfolgs-Kriterium:**
+- ✅ ClusterIssuer existiert: `letsencrypt-http01`
+- ✅ READY Status: `True`
+- ✅ ACME Server: `https://acme-v02.api.letsencrypt.org/directory`
+- ✅ Email: `info@t3company.de`
+- ✅ Solver: `http01` mit `ingressClassName: traefik`
+
+### 5.3 Step 3: Test-Certificate erstellen
+
+Erstelle eine Datei `test-certificate.yaml`:
+
+```yaml
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: test-cert
+  namespace: default
+spec:
+  secretName: test-tls
+  issuerRef:
+    name: letsencrypt-http01
+    kind: ClusterIssuer
+  dnsNames:
+    - app.$USER.do.t3isp.de
+```
+
+```bash
+# USER Variable setzen (aktueller eingeloggter User)
+export USER=$(whoami)
+echo "Test Domain: app.$USER.do.t3isp.de"
+
+# Certificate erstellen (Datei anpassen mit echtem User)
+kubectl apply -f test-certificate.yaml
+
+# Certificate Status beobachten
+kubectl get certificate -w
+
+# Erwartete Status-Progression:
+# test-cert   False   Issuing       10s
+# test-cert   True    Ready         45s
+
+# Details prüfen
+kubectl describe certificate test-cert
+
+# Challenge prüfen (sollte nach ~30-90 Sekunden verschwinden)
+kubectl get challenge
+```
+
+**Erfolgs-Kriterium:**
+- ✅ Certificate wechselt zu Status `Ready: True`
+- ✅ Secret `test-tls` wurde erstellt
+- ✅ Challenge wurde erfolgreich durchgeführt (HTTP-01)
+- ✅ Keine Fehler in Events
+
+**Troubleshooting:**
+```bash
+# Wenn Certificate auf False bleibt:
+kubectl get certificaterequest
+kubectl describe certificaterequest <name>
+
+kubectl get challenge
+kubectl describe challenge <name>
+
+# cert-manager Logs
+kubectl logs -n cert-manager deployment/cert-manager | grep -i error
+```
+
+### 5.4 Step 4: Test-Ingress mit TLS
+
+Erstelle zuerst ein Test-Deployment:
+
+```bash
+# nginx Test-Deployment
+kubectl create deployment test-nginx --image=nginx:latest
+
+# Service erstellen
+kubectl expose deployment test-nginx --port=80 --type=ClusterIP
+```
+
+Erstelle eine Datei `test-ingress.yaml`:
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: test-ingress
+  namespace: default
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-http01"
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - app.$USER.do.t3isp.de
+      secretName: test-tls
+  rules:
+    - host: app.$USER.do.t3isp.de
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: test-nginx
+                port:
+                  number: 80
+```
+
+```bash
+# Ingress erstellen (Datei anpassen mit echtem User)
+kubectl apply -f test-ingress.yaml
+
+# Ingress Status prüfen
+kubectl get ingress test-ingress
+
+# Details anzeigen
+kubectl describe ingress test-ingress
+
+# Certificate sollte automatisch erstellt werden (falls nicht schon vorhanden)
+kubectl get certificate
+
+# HTTPS Test (nach 30-90 Sekunden)
+curl -v https://app.$USER.do.t3isp.de
+
+# Erwartete Ausgabe:
+# * SSL certificate verify ok
+# * Server certificate:
+# *  subject: CN=app.$USER.do.t3isp.de
+# *  issuer: C=US; O=Let's Encrypt; CN=R10
+# < HTTP/1.1 200 OK
+# <!DOCTYPE html>
+# <html>
+# <head>
+# <title>Welcome to nginx!</title>
+```
+
+**Zertifikat-Details prüfen:**
+```bash
+# Zertifikat anzeigen
+echo | openssl s_client -servername app.$USER.do.t3isp.de -connect $(kubectl -n ingress get svc traefik -o jsonpath='{.status.loadBalancer.ingress[0].ip}'):443 2>/dev/null | openssl x509 -noout -text
+
+# Issuer sollte "Let's Encrypt" sein
+# Subject sollte "CN=app.$USER.do.t3isp.de" sein
+# Validity: 90 Tage
+```
+
+**Erfolgs-Kriterium:**
+- ✅ Ingress erstellt
+- ✅ Certificate automatisch provisioniert
+- ✅ HTTPS-Zugriff funktioniert
+- ✅ Browser zeigt gültiges Let's Encrypt Zertifikat
+- ✅ Keine SSL/TLS Fehler
+- ✅ nginx Welcome-Seite sichtbar
+
+---
+
+## 6. Cleanup
+
+### 6.1 Test-Ressourcen entfernen
+```bash
+# Test-Ingress löschen
+kubectl delete -f test-ingress.yaml
+
+# Test-Service und Deployment löschen
+kubectl delete service test-nginx
+kubectl delete deployment test-nginx
+
+# Test-Certificate löschen
+kubectl delete certificate test-cert
+
+# Secret wird automatisch von cert-manager entfernt
+```
+
+### 6.2 cert-manager entfernen (nur bei Bedarf)
+```bash
+# ACHTUNG: Löscht cert-manager komplett!
+helmfile destroy
+
+# Namespace manuell löschen (falls nötig)
+kubectl delete namespace cert-manager
+```
+
+---
+
+## 7. Troubleshooting
+
+### 7.1 Certificate bleibt auf "Issuing"
+
+**Symptom:** Certificate Status bleibt auf `Ready: False`, Reason: `Issuing`
+
+**Diagnose:**
+```bash
+# CertificateRequest prüfen
+kubectl get certificaterequest
+kubectl describe certificaterequest <name>
+
+# Challenge prüfen
+kubectl get challenge
+kubectl describe challenge <name>
+
+# Erwartete Challenge Type: HTTP-01
+# Solver sollte Ingress mit Traefik erstellen
+```
+
+**Häufige Ursachen:**
+- DNS zeigt nicht auf Traefik LoadBalancer IP
+- Port 80 ist nicht erreichbar
+- Traefik IngressClass fehlt oder falsch konfiguriert
+- Let's Encrypt kann Domain nicht validieren
+
+**Lösung:**
+```bash
+# DNS prüfen
+dig +short app.$USER.do.t3isp.de
+
+# Sollte Traefik LoadBalancer IP zeigen
+EXPECTED_IP=$(kubectl -n ingress get svc traefik -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+echo "Expected IP: $EXPECTED_IP"
+
+# Port 80 Test
+curl -v http://app.$USER.do.t3isp.de/.well-known/acme-challenge/test
+
+# IngressClass prüfen
+kubectl get ingressclass
+```
+
+### 7.2 HTTP-01 Challenge schlägt fehl
+
+**Symptom:** Challenge wird nicht gelöst, bleibt pending oder schlägt fehl
+
+**Diagnose:**
+```bash
+# Challenge Events
+kubectl describe challenge <name>
+
+# Traefik Routing prüfen
+kubectl -n ingress logs -l app.kubernetes.io/name=traefik
+
+# Challenge Ingress prüfen (temporär von cert-manager erstellt)
+kubectl get ingress -A | grep acme
+```
+
+**Häufige Ursachen:**
+- Traefik kann Challenge-Ingress nicht routen
+- DNS Propagation noch nicht abgeschlossen
+- Firewall blockiert Port 80
+- Let's Encrypt Server kann Domain nicht erreichen
+
+**Lösung:**
+```bash
+# Manueller Test der Challenge-Route
+# cert-manager erstellt temporär einen Ingress wie:
+# /.well-known/acme-challenge/<token>
+
+# Warten auf DNS Propagation (1-5 Minuten)
+watch dig +short app.$USER.do.t3isp.de
+
+# Challenge neu triggern (Certificate löschen und neu erstellen)
+kubectl delete certificate test-cert
+kubectl apply -f test-certificate.yaml
+```
+
+### 7.3 Let's Encrypt Rate Limits
+
+**Symptom:** Error: "too many certificates already issued"
+
+**Ursache:** Let's Encrypt Production Limits:
+- **5 Zertifikate pro Domain pro Woche**
+- **50 Zertifikate pro registrierter Domain pro Woche**
+
+**Lösung:**
+```bash
+# Auf Staging-Umgebung wechseln für Tests
+# In helmfile.yaml:
+values:
+  - email: "info@t3company.de"
+    server: "staging"  # Statt "prod"
+    enableHttp01: true
+
+# Neu deployen
 helmfile sync
 
-# 2. Control Plane künstlich "beschädigen"
-# (Simuliert Network Partition oder Control Plane Crash)
-kubectl delete deployment traefik -n ingress --force --grace-period=0
-
-# 3. Cluster löschen
-terraform destroy -auto-approve
+# Staging ClusterIssuer wird erstellt
+# Zertifikate von Staging werden von Browsern NICHT vertraut
+# Aber keine Rate Limits
 ```
 
-**Erwartetes Ergebnis:**
-- ✅ Layer 2 läuft (helm uninstall kann fehlschlagen)
-- ✅ Layer 3 läuft (doctl prüft LoadBalancer direkt via API)
-- ✅ Layer 3 wartet, bis LoadBalancer weg ist
-- ✅ Droplets werden gelöscht (innerhalb 20m timeout)
-- ⚠️ Möglicherweise Warning-Logs von helm, aber kein Error
+### 7.4 cert-manager Pods crashen
 
-**Zweck:** Verifizieren, dass Layer 3 (LoadBalancer Cleanup mit doctl) auch ohne funktionierenden Control Plane arbeitet.
+**Symptom:** Pods im Status `CrashLoopBackOff` oder `Error`
 
----
-
-## 6. Validation Checklist
-
-### 6.1 Pre-Testing Check
-
-- [ ] `TF_VAR_do_token` Umgebungsvariable gesetzt
-- [ ] `doctl` installiert (wird von Layer 3 benötigt, auto-install falls fehlend)
-- [ ] `kubectl` installiert
-- [ ] `helmfile` installiert
-- [ ] Backup der `main.tf` erstellt (`main.tf.backup`)
-
-### 6.2 Code Review Check
-
-- [ ] Droplet Timeouts auf 20m erhöht (Layer 1)
-- [ ] Helm Cleanup Hook implementiert (Layer 2)
-- [ ] LoadBalancer Cleanup Hook implementiert (Layer 3)
-- [ ] Control Plane Stabilization Wait (90s in Layer 2)
-- [ ] Project Resources Lifecycle konfiguriert (Layer 5)
-- [ ] **KEIN** `depends_on` in `digitalocean_droplet.k8s_nodes`
-- [ ] `trigger` in Layer 2 zeigt auf `k8s_nodes[0].ipv4_address`
-- [ ] `depends_on` in Layer 3 zeigt auf Layer 2
-
-### 6.3 Testing Execution
-
-- [ ] **Test 1 erfolgreich:** Apply + Destroy (ohne helmfile)
-- [ ] **Test 2 erfolgreich:** Apply + helmfile sync + Destroy
-- [ ] **Test 3 erfolgreich:** Edge Case (Control Plane Failure)
-- [ ] Keine Timeout-Fehler
-- [ ] Keine "pending event" Fehler
-- [ ] Alle Droplets gelöscht
-- [ ] Alle LoadBalancer gelöscht (via `doctl compute load-balancer list`)
-
-### 6.4 Documentation Check
-
-- [ ] `README.md` aktualisiert (Destroy-Dokumentation)
-- [ ] `doctl` Installation dokumentiert
-- [ ] Troubleshooting Guide hinzugefügt
-
-### 6.5 Final Steps
-
-- [ ] Pull Request erstellen nach `master`
-- [ ] Branch Protection: Tests erfolgreich
-- [ ] Review abgeschlossen
-- [ ] Merge durchführen
-
----
-
-## 7. Erfolgskriterien
-
-### 7.1 Must-Have (Blocking)
-
-- ✅ **Test 1 erfolgreich:** `terraform apply` + `terraform destroy` ohne Fehler
-- ✅ **Test 2 erfolgreich:** `terraform apply` + `helmfile sync` + `terraform destroy` ohne Fehler
-- ✅ **Kein Timeout:** Alle Operationen innerhalb 20 Minuten
-- ✅ **Kein Error:** Keine "pending event" oder andere API-Fehler
-- ✅ **Cleanup vollständig:** Alle Droplets und LoadBalancer gelöscht
-
-### 7.2 Nice-to-Have (Non-Blocking)
-
-- ✅ **Test 3 erfolgreich:** Edge Case funktioniert
-- ✅ **Performance:** Destroy dauert <10 Minuten (bei normaler Netzwerkverbindung)
-- ✅ **Logs:** Aussagekräftige Log-Meldungen während Cleanup
-- ✅ **Idempotenz:** Destroy kann wiederholt werden (falls erster Versuch fehlschlägt)
-
----
-
-## 8. Known Issues & Limitations
-
-### 8.1 Dependency Cycle Error (GELÖST)
-
-**Problem:** `depends_on` in Droplets erzeugte Cycle Error
-
-**Lösung:** `depends_on` entfernt, stattdessen `trigger` verwendet
-
-**Status:** ✅ Gelöst
-
-### 8.2 doctl Installation Required
-
-**Problem:** Layer 3 benötigt `doctl` für LoadBalancer Prüfung
-
-**Lösung:** Auto-Install in Layer 3 Hook eingebaut
-
-**Status:** ✅ Implementiert
-
-### 8.3 Timing Dependencies
-
-**Problem:** Control Plane braucht Zeit für Löschvorgänge
-
-**Lösung:** 90 Sekunden Wait nach Helm Cleanup (Layer 4)
-
-**Status:** ✅ Implementiert
-
-### 8.4 Network Partition Scenario
-
-**Limitation:** Wenn Control Plane komplett unerreichbar ist, kann Layer 2 (Helm Cleanup) fehlschlagen.
-
-**Mitigation:** Layer 3 (LoadBalancer Cleanup mit doctl) arbeitet direkt via DigitalOcean API, unabhängig von Control Plane.
-
-**Status:** ⚠️ Edge Case (Test 3 validiert dies)
-
----
-
-## 9. Rollback Plan
-
-Falls die Änderungen Probleme verursachen:
-
+**Diagnose:**
 ```bash
-# 1. Backup wiederherstellen
-cp main.tf.backup main.tf
+# Pod Status
+kubectl get pods -n cert-manager
 
-# 2. Terraform State prüfen
-terraform state list
+# Logs prüfen
+kubectl logs -n cert-manager deployment/cert-manager
+kubectl logs -n cert-manager deployment/cert-manager-webhook
+kubectl logs -n cert-manager deployment/cert-manager-cainjector
 
-# 3. Falls Cluster hängt: Manuelles Cleanup
-# Droplets via DigitalOcean Dashboard löschen
-# LoadBalancer via Dashboard löschen
+# Events
+kubectl get events -n cert-manager --sort-by='.lastTimestamp'
+```
 
-# 4. Terraform State refresh
-terraform refresh
+**Häufige Ursachen:**
+- CRDs nicht installiert
+- Webhook nicht erreichbar
+- Permissions fehlen
 
-# 5. Erneut versuchen
-terraform destroy -auto-approve
+**Lösung:**
+```bash
+# CRDs prüfen
+kubectl get crd | grep cert-manager
+
+# Sollte mindestens diese CRDs zeigen:
+# - certificates.cert-manager.io
+# - certificaterequests.cert-manager.io
+# - issuers.cert-manager.io
+# - clusterissuers.cert-manager.io
+
+# Falls CRDs fehlen: helmfile neu deployen
+helmfile destroy
+helmfile sync
 ```
 
 ---
 
-## 10. Weiterführende Dokumentation
+## 8. Konfiguration
 
-### 10.1 Terraform Timeouts
-- [Terraform Resource Timeouts](https://www.terraform.io/language/resources/syntax#operation-timeouts)
-- [DigitalOcean Droplet Deletion](https://docs.digitalocean.com/reference/api/api-reference/#operation/droplets_destroy)
+### 8.1 helmfile.yaml
 
-### 10.2 Kubernetes Finalizers
-- [Kubernetes Finalizers](https://kubernetes.io/docs/concepts/overview/working-with-objects/finalizers/)
-- [LoadBalancer Deletion Behavior](https://kubernetes.io/docs/concepts/services-networking/service/#loadbalancer)
+**Wichtige Einstellungen:**
 
-### 10.3 DigitalOcean API
-- [doctl Reference](https://docs.digitalocean.com/reference/doctl/)
-- [LoadBalancer API](https://docs.digitalocean.com/reference/api/api-reference/#tag/Load-Balancers)
+```yaml
+releases:
+  - name: cert-manager-config
+    namespace: cert-manager
+    chart: ./charts/cert-manager-config
+    needs:
+      - cert-manager/cert-manager
+    wait: true
+    values:
+      - email: "info@t3company.de"
+        server: "prod"
+        enableDns01: false
+        enableHttp01: true
+```
+
+**Konfigurationsoptionen:**
+- `email`: Let's Encrypt Benachrichtigungs-Email (hardcoded)
+- `server`: `"prod"` oder `"staging"`
+- `enableDns01`: `false` (DNS-01 Challenge deaktiviert)
+- `enableHttp01`: `true` (HTTP-01 Challenge aktiviert)
+
+### 8.2 ClusterIssuer Konfiguration
+
+Der ClusterIssuer `letsencrypt-http01` wird automatisch erstellt:
+
+```yaml
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-http01
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: info@t3company.de
+    privateKeySecretRef:
+      name: letsencrypt-http01-account-key
+    solvers:
+      - http01:
+          ingress:
+            ingressClassName: traefik
+```
+
+**Wichtig:**
+- `ingressClassName: traefik` - muss mit dem Ingress Controller übereinstimmen
+- `privateKeySecretRef` - Speichert den ACME Account Key persistent
 
 ---
 
-**Status:** Implementation Complete - Ready for Testing
-**Branch:** feature/fix-droplet-deletion-timeout
-**Target Branch:** master
-**Erstellt von:** Claude Code
-**Testing Required:** Manual testing with live DigitalOcean cluster
+## 9. Erfolgs-Kriterien
+
+### 9.1 helmfile Deployment
+- ✅ `helmfile sync` ohne Fehler durchgelaufen
+- ✅ cert-manager Namespace erstellt
+- ✅ Alle Releases deployed (cert-manager + cert-manager-config)
+
+### 9.2 cert-manager Status
+- ✅ Alle Pods im Status "Running" (cert-manager, webhook, cainjector)
+- ✅ Keine Error-Logs in Pods
+- ✅ CRDs installiert (`kubectl get crd | grep cert-manager`)
+
+### 9.3 ClusterIssuer
+- ✅ ClusterIssuer `letsencrypt-http01` existiert
+- ✅ Status: `READY = True`
+- ✅ ACME Server korrekt konfiguriert
+- ✅ Email: `info@t3company.de`
+- ✅ Solver: HTTP-01 mit Traefik IngressClass
+
+### 9.4 Test-Certificate
+- ✅ Test-Certificate erfolgreich ausgestellt
+- ✅ Status wechselt zu `Ready: True`
+- ✅ Secret `test-tls` erstellt
+- ✅ Challenge erfolgreich durchgeführt (HTTP-01)
+- ✅ Keine Fehler in Events
+
+### 9.5 Test-Ingress mit TLS
+- ✅ Test-Ingress erstellt
+- ✅ Zertifikat automatisch provisioniert
+- ✅ HTTPS-Zugriff funktioniert (`curl https://app.$USER.do.t3isp.de`)
+- ✅ Browser zeigt gültiges Let's Encrypt Zertifikat
+- ✅ Keine SSL/TLS Warnungen
+- ✅ nginx Welcome-Seite erreichbar
+
+### 9.6 Cleanup
+- ✅ Test-Ressourcen erfolgreich entfernt
+- ✅ cert-manager läuft stabil
+- ✅ Bereit für produktive Nutzung
+
+---
+
+## 10. Checkliste
+
+### Pre-Flight Check
+- [ ] **TF_VAR_do_token** Umgebungsvariable gesetzt (= DIGITALOCEAN_ACCESS_TOKEN)
+- [ ] Kubernetes Cluster deployed (`terraform apply` erfolgreich)
+- [ ] Traefik Ingress Controller läuft
+- [ ] .kube/config konfiguriert (`kubectl cluster-info` funktioniert)
+- [ ] helmfile installiert (`helmfile --version`)
+- [ ] DNS Wildcard zeigt auf Traefik LoadBalancer IP
+- [ ] Port 80 erreichbar
+
+### Branch und PRD
+- [ ] Branch erstellt: `feature/cert-manager-http01`
+- [ ] Alte PRD gesichert: `PRD.backup.20260128.0750.md`
+- [ ] Neue PRD.md erstellt
+
+### Konfiguration
+- [ ] helmfile.yaml angepasst (Email hardcoded, DIGITALOCEAN_TOKEN entfernt)
+- [ ] values.yaml konfiguriert (`enableHttp01: true`, `enableDns01: false`)
+
+### Deployment
+- [ ] `helmfile sync` erfolgreich
+- [ ] cert-manager Pods Running
+- [ ] ClusterIssuer Ready
+
+### Validierung (4 Steps)
+- [ ] **Step 1:** cert-manager Pod Status geprüft
+- [ ] **Step 2:** ClusterIssuer Ready Status verifiziert
+- [ ] **Step 3:** Test-Certificate erfolgreich ausgestellt
+- [ ] **Step 4:** Test-Ingress mit HTTPS funktioniert
+
+### Abschluss
+- [ ] Test-Ressourcen entfernt (Cleanup durchgeführt)
+- [ ] README.md aktualisiert (cert-manager Dokumentation hinzugefügt)
+- [ ] Commit erstellt
+- [ ] Pull Request erstellt nach `master`
+
+---
+
+## 11. Wichtige Hinweise
+
+### Warum HTTP-01 statt DNS-01?
+
+**Vorteile HTTP-01:**
+- ✅ **Einfacher:** Kein API-Token oder DNS-Provider nötig
+- ✅ **Schneller:** Keine DNS-Propagation Wartezeit
+- ✅ **Ausreichend:** Traefik läuft, Port 80 ist offen
+- ✅ **Standard:** Funktioniert mit jedem Ingress Controller
+
+**Nachteile HTTP-01:**
+- ❌ **Keine Wildcard-Zertifikate:** Jede Subdomain braucht eigenes Cert
+- ❌ **Port 80 nötig:** Challenge läuft über HTTP (nicht HTTPS)
+- ❌ **Öffentlich erreichbar:** Domain muss von Let's Encrypt erreichbar sein
+
+**Wann DNS-01 verwenden:**
+- Wildcard-Zertifikate benötigt (`*.domain.com`)
+- Port 80 ist blockiert oder nicht verfügbar
+- Domain ist nicht öffentlich erreichbar (internal/private)
+
+### Let's Encrypt Umgebungen
+
+**Production:**
+- URL: `https://acme-v02.api.letsencrypt.org/directory`
+- Rate Limits: 5 Certs/Domain/Woche, 50 Certs/Registered Domain/Woche
+- Zertifikate werden von allen Browsern vertraut
+- **Verwendung:** Produktiv-Einsatz
+
+**Staging:**
+- URL: `https://acme-staging-v02.api.letsencrypt.org/directory`
+- Rate Limits: Sehr hoch (für Tests)
+- Zertifikate werden NICHT von Browsern vertraut
+- **Verwendung:** Tests und Entwicklung
+
+### Test-User
+
+Der Test-User wird dynamisch ermittelt:
+```bash
+export USER=$(whoami)
+echo "Test Domain: app.$USER.do.t3isp.de"
+```
+
+Für manuelle Tests mit spezifischem User:
+```bash
+export USER="tln1"
+# Dann test-certificate.yaml und test-ingress.yaml anpassen
+```
+
+---
+
+**Status:** Ready for Implementation
+**Erstellt von:** Claude Code (basierend auf Interview)
+**Branch:** feature/cert-manager-http01
+**Merge-Ziel:** master
