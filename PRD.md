@@ -3,7 +3,7 @@
 
 **Version:** 1.0
 **Datum:** 2026-01-28
-**Status:** Implementation Complete - Automated Testing Authorized
+**Status:** Implementation Complete - Testing Required
 **Branch:** feature/fix-droplet-deletion-timeout
 
 ---
@@ -32,18 +32,6 @@ Implementierung einer Multi-Layer Lösung, die sicherstellt, dass `terraform des
 - ✅ `terraform apply` erstellt Cluster erfolgreich
 - ✅ `helmfile sync` deployed Traefik + cert-manager erfolgreich
 - ✅ `terraform destroy` löscht alle Ressourcen erfolgreich (kein Timeout)
-
-### 1.3 Automated Testing Authorization
-
-**Cost Approval:** Automated testing with live DigitalOcean resources is approved. The infrastructure costs are acceptable as this project is used for a paid training course.
-
-**Testing Scope:**
-- Automated creation and deletion of Kubernetes clusters (4 Droplets)
-- LoadBalancer provisioning and cleanup
-- Multiple test iterations to validate the fix
-- Total estimated cost: ~$5-10 per test cycle (depending on duration)
-
-**Authorization:** The trainer is compensated for the training and approves these infrastructure costs as part of quality assurance.
 
 ---
 
@@ -323,13 +311,13 @@ resource "null_resource" "pre_destroy_helm_cleanup" {
 
 ---
 
-## 5. Automated Testing
+## 5. Testing
 
 ### 5.1 Test 1: Clean Path (Apply + Destroy)
 
 **Ziel:** Verifizieren, dass Cluster ohne Helm Releases sauber gelöscht werden kann
 
-**Automated Test Flow:**
+**Schritte:**
 ```bash
 # 1. Umgebungsvariable setzen
 export TF_VAR_do_token="your-digitalocean-api-token"
@@ -360,7 +348,7 @@ terraform destroy -auto-approve
 
 **Ziel:** Verifizieren, dass Cluster mit Traefik LoadBalancer sauber gelöscht werden kann
 
-**Automated Test Flow:**
+**Schritte:**
 ```bash
 # 1. Umgebungsvariable setzen
 export TF_VAR_do_token="your-digitalocean-api-token"
@@ -401,14 +389,14 @@ terraform destroy -auto-approve
 
 **Dauer:** ~10-15 Minuten
 
-**Automated Monitoring:**
+**Logs beobachten:**
 ```bash
-# Automated checks during terraform destroy
-while terraform destroy -auto-approve; do
-  doctl compute load-balancer list
-  kubectl get svc -n ingress 2>/dev/null || true
-  sleep 10
-done
+# In separatem Terminal während terraform destroy
+watch -n 5 'doctl compute load-balancer list'
+# Sollte LoadBalancer zeigen, dann verschwinden
+
+watch -n 5 'kubectl get svc -n ingress'
+# Sollte Terminating zeigen, dann verschwinden
 ```
 
 ---
@@ -417,7 +405,7 @@ done
 
 **Ziel:** Verifizieren, dass Cleanup auch funktioniert, wenn Control Plane nicht erreichbar ist
 
-**Automated Test Flow:**
+**Schritte:**
 ```bash
 # 1. Cluster erstellen + helmfile sync
 terraform apply -auto-approve
@@ -463,11 +451,11 @@ terraform destroy -auto-approve
 - [ ] `trigger` in Layer 2 zeigt auf `k8s_nodes[0].ipv4_address`
 - [ ] `depends_on` in Layer 3 zeigt auf Layer 2
 
-### 6.3 Automated Testing Execution
+### 6.3 Testing Execution
 
-- [ ] **Test 1 erfolgreich:** Automated Apply + Destroy (ohne helmfile)
-- [ ] **Test 2 erfolgreich:** Automated Apply + helmfile sync + Destroy
-- [ ] **Test 3 erfolgreich:** Automated Edge Case (Control Plane Failure)
+- [ ] **Test 1 erfolgreich:** Apply + Destroy (ohne helmfile)
+- [ ] **Test 2 erfolgreich:** Apply + helmfile sync + Destroy
+- [ ] **Test 3 erfolgreich:** Edge Case (Control Plane Failure)
 - [ ] Keine Timeout-Fehler
 - [ ] Keine "pending event" Fehler
 - [ ] Alle Droplets gelöscht
@@ -583,8 +571,8 @@ terraform destroy -auto-approve
 
 ---
 
-**Status:** Implementation Complete - Ready for Automated Testing
+**Status:** Implementation Complete - Ready for Testing
 **Branch:** feature/fix-droplet-deletion-timeout
 **Target Branch:** master
 **Erstellt von:** Claude Code
-**Testing Authorized:** Automated testing with live DigitalOcean cluster (approved)
+**Testing Required:** Manual testing with live DigitalOcean cluster

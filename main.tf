@@ -84,8 +84,7 @@ resource "null_resource" "pre_destroy_lb_cleanup" {
   depends_on = [null_resource.pre_destroy_helm_cleanup]
 
   triggers = {
-    control_plane_ip = digitalocean_droplet.k8s_nodes[0].ipv4_address
-    do_token        = var.do_token
+    do_token = var.do_token
   }
 
   provisioner "local-exec" {
