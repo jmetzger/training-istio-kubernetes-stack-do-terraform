@@ -100,11 +100,39 @@ resource "null_resource" "wait_for_control_plane_ssh" {
 }
 
 # -----------------------------
+# Wait for Worker Nodes cloud-init
+# -----------------------------
+resource "null_resource" "wait_for_worker_ssh" {
+  count      = 3
+  depends_on = [digitalocean_droplet.k8s_nodes]
+
+  connection {
+    type        = "ssh"
+    user        = "root"
+    host        = digitalocean_droplet.k8s_nodes[count.index + 1].ipv4_address
+    private_key = tls_private_key.ssh.private_key_pem
+    timeout     = "5m"
+  }
+
+  provisioner "remote-exec" {
+    inline = [
+      "echo 'SSH is up on worker-${count.index + 1}: ${digitalocean_droplet.k8s_nodes[count.index + 1].ipv4_address}'",
+      "echo 'Waiting for cloud-init to finish...'",
+      "while [ ! -f /var/lib/cloud/instance/boot-finished ]; do sleep 5; done",
+      "echo 'cloud-init done.'"
+    ]
+  }
+}
+
+# -----------------------------
 # LOCAL EXEC JOIN SCRIPT
 # -----------------------------
 resource "null_resource" "run_join_script" {
+  depends_on = [
+    null_resource.wait_for_control_plane_ssh,
+    null_resource.wait_for_worker_ssh
+  ]
 
-  depends_on = [null_resource.wait_for_control_plane_ssh]
   provisioner "local-exec" {
     command = <<EOT
 chmod +x ./scripts/join-workers.sh && ./scripts/join-workers.sh "${self.triggers.worker_ips}" "${join(",", [for droplet in digitalocean_droplet.k8s_nodes : droplet.ipv4_address_private])}"
@@ -114,7 +142,6 @@ EOT
   triggers = {
     worker_ips = join(",", [for droplet in digitalocean_droplet.k8s_nodes : droplet.ipv4_address])
   }
-
 }
 
 # -----------------------------
