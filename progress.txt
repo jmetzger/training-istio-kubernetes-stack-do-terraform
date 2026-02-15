@@ -1,0 +1,56 @@
+## Erledigt
+
+### 2026-02-15: Terraform Droplet Deletion Timeout - GELÖST
+
+**Problem:**
+- Terraform destroy schlug mit Timeout-Fehler fehl: "Error deleting droplet: context deadline exceeded"
+- Droplets wurden trotzdem gelöscht, aber Terraform State blieb inkonsistent
+
+**Root Cause Analyse:**
+- DigitalOcean Provider v2.74.0 hat hardcodierten 1-Minuten-Timeout für WaitForState (archive)
+- Resource-Level `timeouts { delete = "10m" }` hat KEINEN Effekt auf interne Provider-Waits
+- Log-Beweis: `[WARN] WaitForState timeout after 1m0s`
+
+**Lösung:**
+- Wrapper-Script `scripts/safe-destroy.sh` erstellt
+- Script führt `terraform destroy` aus (Fehler wird ignoriert)
+- Verifiziert dass Droplets in DigitalOcean tatsächlich gelöscht wurden
+- Räumt automatisch Terraform State auf wenn Droplets weg sind
+
+**Test-Ergebnisse:**
+✅ terraform apply → 19 Ressourcen erfolgreich erstellt
+✅ ./scripts/safe-destroy.sh → Automatisches Cleanup erfolgreich
+✅ Terraform State: Leer
+✅ DigitalOcean Droplets: Alle gelöscht
+✅ Exit-Code: 0 (Erfolg)
+
+**Dateien geändert:**
+- PRD.md: Aktualisiert mit finaler Root Cause Analyse + Lösungsoptionen
+- scripts/safe-destroy.sh: Neues Wrapper-Script (automatisches State-Cleanup)
+- main.tf: Timeout-Config entfernt (bringt nichts)
+
+**Verwendung:**
+```bash
+# Cluster erstellen
+terraform apply -auto-approve
+
+# Cluster sicher löschen (mit automatischem State-Cleanup)
+./scripts/safe-destroy.sh
+```
+
+**Lessons Learned:**
+1. Resource `timeouts {}` Block gilt NICHT für interne Provider-Waits
+2. Provider können hardcodierte Timeouts haben die nicht konfigurierbar sind
+3. TF_LOG=TRACE zeigt Provider-Internals und beweist Timeout-Source
+4. Robuste Wrapper-Scripts können Provider-Limitations kompensieren
+5. Immer verifizieren ob Cloud-Ressourcen tatsächlich gelöscht wurden
+
+**Status:** ✅ ABGESCHLOSSEN - Produktiv einsetzbar
+
+## In Arbeit
+
+(leer)
+
+## Ausstehend
+
+(leer)
