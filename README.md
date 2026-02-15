@@ -155,7 +155,29 @@ Der generierte private SSH-Key `id_rsa_k8s_do` wird lokal gespeichert. Bitte sic
 
 ## 🧼 Bereinigen
 
+### Empfohlene Methode: Safe Destroy Script
+
+```bash
+# Verwendet automatisches State-Cleanup bei Provider-Timeout
+./scripts/safe-destroy.sh
+rm -f id_rsa_k8s_do id_rsa_k8s_do.pub
+```
+
+**Was macht `safe-destroy.sh`?**
+
+1. Führt `terraform destroy` aus (ignoriert Timeout-Fehler)
+2. Verifiziert dass alle k8s-Droplets in DigitalOcean gelöscht wurden
+3. Räumt automatisch den Terraform State auf wenn Droplets weg sind
+
+**Warum ist das nötig?**
+
+Der DigitalOcean Provider v2.74.0 hat einen hardcodierten 1-Minuten-Timeout beim Warten auf den "archive"-Status. Droplets werden trotz Timeout-Fehler korrekt gelöscht, aber der Terraform State bleibt inkonsistent. Das Script verifiziert die tatsächliche Löschung und räumt den State sauber auf.
+
+### Alternative: Standard Destroy
+
 ```bash
 terraform destroy -auto-approve
+# Bei Timeout-Fehlern: Manuelles State-Cleanup erforderlich
 rm -f id_rsa_k8s_do id_rsa_k8s_do.pub
+```
 
