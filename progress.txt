@@ -11,12 +11,14 @@
   - StorageClass nfs-csi als Default-StorageClass (is-default-class: "true")
   - reclaimPolicy: Retain
 
+- [2026-02-18] Task 3: Test auf Testcluster erfolgreich
+  - helmfile -f helmfile-csi-nfs.yaml sync: ERFOLGREICH
+  - CSI Driver Pods: 1x controller (5/5 Running), 4x node (3/3 Running)
+  - StorageClass nfs-csi: vorhanden, als (default) markiert
+  - PVC-Binding Test: PVC sofort Bound (ReadWriteMany, 1Gi)
+  - NFS Server 10.135.0.7 erreichbar und funktional
+
 ## In Arbeit
 
 ## Ausstehend
 
-- Task 3: Test auf Testcluster
-  - helmfile -f helmfile-csi-nfs.yaml sync
-  - kubectl get pods -n kube-system | grep csi-nfs
-  - kubectl get storageclass
-  - Optional: Test PVC erstellen

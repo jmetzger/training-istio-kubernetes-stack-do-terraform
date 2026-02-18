@@ -1,5 +1,9 @@
 # Project Requirements Document: NFS CSI Storage Integration
 
+## Projektstatus
+
+**ABGESCHLOSSEN** - Alle Tasks implementiert und erfolgreich getestet (2026-02-18).
+
 ## Projektziel
 
 Integration von NFS CSI Driver in den Kubernetes Cluster als Standard-StorageClass für persistenten Storage.
@@ -7,6 +11,17 @@ Integration von NFS CSI Driver in den Kubernetes Cluster als Standard-StorageCla
 ## Budget
 
 DigitalOcean Budget: **EUR 100,-** (Freigabe erteilt)
+
+## Test-Ausführung
+
+Die Tests (Task 3) werden **automatisiert von Claude** durchgeführt. Das Budget für die dazu notwendige Infrastruktur (DigitalOcean Cluster) ist vom Nutzer freigegeben.
+
+Claude hat direkten Zugriff auf den Cluster (verifizierbar mit `kubectl cluster-info`):
+
+```
+Kubernetes control plane is running at https://165.232.70.223:6443
+CoreDNS is running at https://165.232.70.223:6443/api/v1/namespaces/kube-system/services/kube-dns:dns/proxy
+```
 
 ## Voraussetzungen / Kontext
 
