@@ -140,6 +140,51 @@ kubectl get clusterissuer
 
 ---
 
+## 💾 NFS CSI Driver (Persistenter Storage)
+
+Der NFS CSI Driver wird separat via `helmfile-csi-nfs.yaml` installiert und setzt `nfs-csi` als Default-StorageClass.
+
+### Voraussetzungen
+
+- NFS Server erreichbar unter Private IP `10.135.0.7`
+- NFS Share: `/var/nfs`
+
+### Installation
+
+```bash
+helmfile -f helmfile-csi-nfs.yaml sync
+```
+
+### Validierung
+
+```bash
+# CSI Driver Pods prüfen
+kubectl get pods -n kube-system | grep csi-nfs
+
+# StorageClass prüfen (nfs-csi sollte als default markiert sein)
+kubectl get storageclass
+```
+
+Erwartete Ausgabe:
+```
+NAME                PROVISIONER      RECLAIMPOLICY   VOLUMEBINDINGMODE   ALLOWVOLUMEEXPANSION
+nfs-csi (default)   nfs.csi.k8s.io   Retain          Immediate           false
+```
+
+### Struktur
+
+```
+├── helmfile-csi-nfs.yaml           # Helmfile für CSI Driver + StorageClass
+└── charts/
+    └── nfs-csi-storageclass/       # Custom Chart für StorageClass
+        ├── Chart.yaml
+        ├── values.yaml             # NFS Server IP und Share konfigurierbar
+        └── templates/
+            └── storageclass.yaml
+```
+
+---
+
 ## ❗ Sicherheitshinweis
 
 Der generierte private SSH-Key `id_rsa_k8s_do` wird lokal gespeichert. Bitte sicher verwahren und nicht ins Git einchecken:

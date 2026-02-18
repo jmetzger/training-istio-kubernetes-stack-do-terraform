@@ -33,9 +33,9 @@ CoreDNS is running at https://165.232.70.223:6443/api/v1/namespaces/kube-system/
 
 ---
 
-## Offene Aufgaben
+## Abgeschlossene Aufgaben (NFS CSI Integration)
 
-### Task 1: helmfile-csi-nfs.yaml erstellen
+### Task 1: helmfile-csi-nfs.yaml erstellen ✅ (2026-02-18)
 
 **Ziel:** Separates Helmfile das den NFS CSI Driver und die StorageClass installiert.
 
@@ -55,7 +55,7 @@ helmfile -f helmfile-csi-nfs.yaml sync
 
 ---
 
-### Task 2: Custom Helm Chart `charts/nfs-csi-storageclass` erstellen
+### Task 2: Custom Helm Chart `charts/nfs-csi-storageclass` erstellen ✅ (2026-02-18)
 
 **Ziel:** Chart installiert nur eine `StorageClass` die NFS CSI als **Default-StorageClass** setzt.
 
@@ -93,7 +93,7 @@ nfs:
 
 ---
 
-### Task 3: Test auf Testcluster
+### Task 3: Test auf Testcluster ✅ (2026-02-18)
 
 **Ziel:** Verifizieren dass Installation funktioniert.
 
