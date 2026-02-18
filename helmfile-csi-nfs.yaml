@@ -1,0 +1,23 @@
+repositories:
+  - name: csi-driver-nfs
+    url: https://raw.githubusercontent.com/kubernetes-csi/csi-driver-nfs/master/charts
+
+releases:
+  - name: csi-driver-nfs
+    namespace: kube-system
+    chart: csi-driver-nfs/csi-driver-nfs
+    version: v4.13.1
+    wait: true
+    timeout: 300
+    atomic: true
+
+  - name: nfs-csi-storageclass
+    namespace: kube-system
+    chart: ./charts/nfs-csi-storageclass
+    needs:
+      - kube-system/csi-driver-nfs
+    wait: true
+    values:
+      - nfs:
+          server: "10.135.0.7"
+          share: "/var/nfs"
