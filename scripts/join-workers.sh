@@ -32,7 +32,7 @@ localAPIEndpoint:
 ---
 apiVersion: kubeadm.k8s.io/v1beta3
 kind: ClusterConfiguration
-kubernetesVersion: "v1.32.0"
+kubernetesVersion: "v1.35.0"
 networking:
   podSubnet: "192.168.0.0/16"  # z. B. für Flannel
 apiServer:

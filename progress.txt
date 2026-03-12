@@ -18,6 +18,11 @@
   - PVC-Binding Test: PVC sofort Bound (ReadWriteMany, 1Gi)
   - NFS Server 10.135.0.7 erreichbar und funktional
 
+- [2026-03-12] Task 4: Kubernetes Version auf 1.35 angehoben
+  - cloud-init/setup-k8s-node.sh: K8S_VERSION="v1.32" -> "v1.35"
+  - scripts/join-workers.sh: kubernetesVersion: "v1.32.0" -> "v1.35.0"
+  - README.md: Versionsangabe auf 1.35.0-00 aktualisiert
+
 ## In Arbeit
 
 ## Ausstehend

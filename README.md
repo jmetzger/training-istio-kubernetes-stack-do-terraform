@@ -65,7 +65,7 @@ Falls das Verzeichnis `~/.kube` noch nicht existiert, wird es automatisch erstel
 ## ⚙️ Komponenten & Versionen
 
 - Terraform: >= 1.4.0
-- Kubernetes: `1.33.0-00` (Fallback: `1.32.3-00`)
+- Kubernetes: `1.35.0-00`
 - Calico: Tigera Operator (CRD-basiert)
 - MetalLB: Helm Chart `0.13.12`
 - Traefik: Helm Chart `38.0.2` (ohne CRDs)
