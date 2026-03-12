@@ -1,8 +1,8 @@
-# DigitalOcean Kubernetes Setup mit Terraform & Calico Operator
+# DigitalOcean Kubernetes Setup mit OpenTofu & Calico Operator
 
 Dieses Repository automatisiert den Aufbau eines selbstverwalteten Kubernetes-Clusters auf DigitalOcean mit:
 
-- Terraform-Infrastruktur (VPC, Droplets, SSH Key, Helm, DNS)
+- OpenTofu-Infrastruktur (VPC, Droplets, SSH Key, Helm, DNS)
 - Kubernetes-Installation via Cloud-init + kubeadm
 - Calico CNI via Tigera Operator
 - MetalLB LoadBalancer mit L2 Propagation
@@ -15,7 +15,7 @@ Dieses Repository automatisiert den Aufbau eines selbstverwalteten Kubernetes-Cl
 
 - DigitalOcean-Account + API Token (über Umgebungsvariable setzen mit `export TF_VAR_do_token="<your_token>"`)
 - Domain wie `do.t3isp.de` in DigitalOcean DNS verwaltet
-- `terraform`, `jq`, `ssh`, `scp` lokal installiert
+- `tofu`, `jq`, `ssh`, `scp` lokal installiert
 - `helmfile` (optional, für cert-manager Deployment)
 - SSH-Zugriff auf erzeugte Droplets (automatisch eingerichtet)
 
@@ -32,9 +32,9 @@ Dieses Repository automatisiert den Aufbau eines selbstverwalteten Kubernetes-Cl
 ```bash
 # DigitalOcean API Token als Umgebungsvariable setzen
 export TF_VAR_do_token="<your_token>"
-# Terraform initialisieren und Infrastruktur provisionieren
-terraform init
-terraform apply -auto-approve
+# OpenTofu initialisieren und Infrastruktur provisionieren
+tofu init
+tofu apply -auto-approve
 ```
 
 Nach erfolgreicher Initialisierung wird die Kubernetes-Konfiguration (`admin.conf`) automatisch vom Control-Plane-Node kopiert und gespeichert als:
@@ -64,7 +64,7 @@ Falls das Verzeichnis `~/.kube` noch nicht existiert, wird es automatisch erstel
 
 ## ⚙️ Komponenten & Versionen
 
-- Terraform: >= 1.4.0
+- OpenTofu: >= 1.8.0
 - Kubernetes: `1.35.0-00`
 - Calico: Tigera Operator (CRD-basiert)
 - MetalLB: Helm Chart `0.13.12`
@@ -98,7 +98,7 @@ kubectl -n ingress get svc
 
 ## 📦 Helmfile Deployment (cert-manager)
 
-Nach dem erfolgreichen Terraform-Setup kann zusätzlich cert-manager über helmfile installiert werden.
+Nach dem erfolgreichen OpenTofu-Setup kann zusätzlich cert-manager über helmfile installiert werden.
 
 ### Was macht helmfile sync?
 
@@ -108,7 +108,7 @@ Nach dem erfolgreichen Terraform-Setup kann zusätzlich cert-manager über helmf
 
 ### Wann sollte helmfile sync verwendet werden?
 
-- **Initial**: Nach `terraform apply`, sobald der Cluster läuft
+- **Initial**: Nach `tofu apply`, sobald der Cluster läuft
 - **Updates**: Nach Änderungen an `helmfile.yaml` oder `charts/`
 - **Reparatur**: Wenn cert-manager-Ressourcen fehlen oder inkonsistent sind
 
@@ -210,18 +210,18 @@ rm -f id_rsa_k8s_do id_rsa_k8s_do.pub
 
 **Was macht `safe-destroy.sh`?**
 
-1. Führt `terraform destroy` aus (ignoriert Timeout-Fehler)
+1. Führt `tofu destroy` aus (ignoriert Timeout-Fehler)
 2. Verifiziert dass alle k8s-Droplets in DigitalOcean gelöscht wurden
-3. Räumt automatisch den Terraform State auf wenn Droplets weg sind
+3. Räumt automatisch den OpenTofu State auf wenn Droplets weg sind
 
 **Warum ist das nötig?**
 
-Der DigitalOcean Provider v2.74.0 hat einen hardcodierten 1-Minuten-Timeout beim Warten auf den "archive"-Status. Droplets werden trotz Timeout-Fehler korrekt gelöscht, aber der Terraform State bleibt inkonsistent. Das Script verifiziert die tatsächliche Löschung und räumt den State sauber auf.
+Der DigitalOcean Provider v2.74.0 hat einen hardcodierten 1-Minuten-Timeout beim Warten auf den "archive"-Status. Droplets werden trotz Timeout-Fehler korrekt gelöscht, aber der OpenTofu State bleibt inkonsistent. Das Script verifiziert die tatsächliche Löschung und räumt den State sauber auf.
 
 ### Alternative: Standard Destroy
 
 ```bash
-terraform destroy -auto-approve
+tofu destroy -auto-approve
 # Bei Timeout-Fehlern: Manuelles State-Cleanup erforderlich
 rm -f id_rsa_k8s_do id_rsa_k8s_do.pub
 ```

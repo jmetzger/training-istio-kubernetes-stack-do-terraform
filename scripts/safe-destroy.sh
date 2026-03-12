@@ -2,7 +2,7 @@
 set -e
 
 echo "=== Step 1: Terraform Destroy ==="
-terraform destroy -auto-approve || true
+tofu destroy -auto-approve || true
 
 echo ""
 echo "=== Step 2: Verify Droplets deleted in DigitalOcean ==="
@@ -14,9 +14,9 @@ if [ "$DROPLETS" -eq 0 ]; then
 
     echo ""
     echo "=== Step 3: Clean up Terraform State ==="
-    if terraform state list | grep -q "."; then
+    if tofu state list | grep -q "."; then
         echo "⚠️  State contains resources - cleaning up..."
-        terraform state rm $(terraform state list)
+        tofu state rm $(tofu state list)
         echo "✅ State cleaned"
     else
         echo "✅ State already clean"

@@ -25,11 +25,41 @@ CoreDNS is running at https://165.232.70.223:6443/api/v1/namespaces/kube-system/
 
 ## Voraussetzungen / Kontext
 
-- Kubernetes Cluster auf DigitalOcean via Terraform (existiert)
+- Kubernetes Cluster auf DigitalOcean via Terraform (existiert), Version: **1.35**
 - NFS Server vorhanden: **Private IP 10.135.0.7**
 - NFS Share: `/var/nfs`
 - kubeconfig für Testcluster ist eingerichtet
 - Bestehende Helmfile-Infrastruktur (helmfile.yaml) als Vorlage
+
+---
+
+## Offene Aufgaben
+
+### Task 4: Kubernetes Version auf 1.35 anheben ⬜
+
+**Ziel:** Alle Quellen im Repository auf Kubernetes **1.35** aktualisieren.
+
+**Betroffene Dateien:**
+
+| Datei | Aktueller Wert | Zielwert |
+|-------|---------------|----------|
+| `cloud-init/setup-k8s-node.sh` | `K8S_VERSION="v1.32"` | `K8S_VERSION="v1.35"` |
+| `scripts/join-workers.sh` | `kubernetesVersion: "v1.32.0"` | `kubernetesVersion: "v1.35.0"` |
+| `README.md` | `1.33.0-00` (Fallback: `1.32.3-00`) | `1.35.0-00` |
+
+**Schritte:**
+```bash
+# 1. Dateien anpassen (siehe Tabelle oben)
+
+# 2. Cluster neu aufbauen und verifizieren
+terraform apply -auto-approve
+kubectl version --short
+```
+
+**Erwartetes Ergebnis:**
+- `kubectl version` zeigt Server-Version `v1.35.x`
+- Alle Cloud-Init / Join-Skripte verwenden `v1.35`
+- README gibt korrekte Installationsversion an
 
 ---
 
