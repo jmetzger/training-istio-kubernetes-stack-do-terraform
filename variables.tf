@@ -19,3 +19,9 @@ variable "droplet_size" {
   type        = string
   default     = "s-2vcpu-4gb"
 }
+
+variable "worker_count" {
+  description = "Number of worker nodes"
+  type        = number
+  default     = 1
+}

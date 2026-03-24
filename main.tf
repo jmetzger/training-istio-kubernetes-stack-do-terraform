@@ -48,7 +48,7 @@ resource "digitalocean_ssh_key" "k8s_ssh" {
 # DROPLETS
 # -----------------------------
 resource "digitalocean_droplet" "k8s_nodes" {
-  count              = 4
+  count              = 1 + var.worker_count
   name               = "k8s-${count.index == 0 ? "cp" : "w${count.index}"}"
   region             = var.region
   size               = var.droplet_size
@@ -106,7 +106,7 @@ resource "null_resource" "wait_for_control_plane_ssh" {
 # Wait for Worker Nodes cloud-init
 # -----------------------------
 resource "null_resource" "wait_for_worker_ssh" {
-  count      = 3
+  count      = var.worker_count
   depends_on = [digitalocean_droplet.k8s_nodes, null_resource.wait_for_control_plane_ssh]
 
   connection {
