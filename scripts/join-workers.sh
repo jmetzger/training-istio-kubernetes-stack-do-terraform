@@ -32,7 +32,7 @@ localAPIEndpoint:
 ---
 apiVersion: kubeadm.k8s.io/v1beta3
 kind: ClusterConfiguration
-kubernetesVersion: "v1.35.0"
+kubernetesVersion: "v1.35.2"
 networking:
   podSubnet: "192.168.0.0/16"  # z. B. für Flannel
 apiServer:
@@ -47,8 +47,15 @@ mkdir -p /root/.kube
 cp -i /etc/kubernetes/admin.conf /root/.kube/config
 
 # Install Calico via Tigera Operator
-kubectl create -f https://raw.githubusercontent.com/projectcalico/calico/v3.27.0/manifests/tigera-operator.yaml
-kubectl create -f https://raw.githubusercontent.com/projectcalico/calico/v3.27.0/manifests/custom-resources.yaml
+kubectl create -f https://raw.githubusercontent.com/projectcalico/calico/v3.31.2/manifests/tigera-operator.yaml
+
+# Wait for Tigera CRDs to be registered before applying custom-resources
+echo "Waiting for Tigera CRDs..."
+until kubectl get crd installations.operator.tigera.io &>/dev/null; do
+  sleep 3
+done
+
+kubectl create -f https://raw.githubusercontent.com/projectcalico/calico/v3.31.2/manifests/custom-resources.yaml
 EOF
 
 echo "[INFO] Getting join command..."

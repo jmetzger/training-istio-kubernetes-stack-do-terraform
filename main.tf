@@ -94,7 +94,10 @@ resource "null_resource" "wait_for_control_plane_ssh" {
       "echo 'SSH is up on control-plane: ${digitalocean_droplet.k8s_nodes[0].ipv4_address}'",
       "echo 'Waiting for cloud-init to finish...'",
       "while [ ! -f /var/lib/cloud/instance/boot-finished ]; do sleep 5; done",
-      "echo 'cloud-init done.'"
+      "echo 'cloud-init done.'",
+      "echo 'Waiting for kubeadm to be available...'",
+      "until command -v kubeadm &>/dev/null; do sleep 5; done",
+      "echo 'kubeadm is ready: '$(kubeadm version --output=short)"
     ]
   }
 }
@@ -104,7 +107,7 @@ resource "null_resource" "wait_for_control_plane_ssh" {
 # -----------------------------
 resource "null_resource" "wait_for_worker_ssh" {
   count      = 3
-  depends_on = [digitalocean_droplet.k8s_nodes]
+  depends_on = [digitalocean_droplet.k8s_nodes, null_resource.wait_for_control_plane_ssh]
 
   connection {
     type        = "ssh"
@@ -119,7 +122,10 @@ resource "null_resource" "wait_for_worker_ssh" {
       "echo 'SSH is up on worker-${count.index + 1}: ${digitalocean_droplet.k8s_nodes[count.index + 1].ipv4_address}'",
       "echo 'Waiting for cloud-init to finish...'",
       "while [ ! -f /var/lib/cloud/instance/boot-finished ]; do sleep 5; done",
-      "echo 'cloud-init done.'"
+      "echo 'cloud-init done.'",
+      "echo 'Waiting for kubeadm to be available...'",
+      "until command -v kubeadm &>/dev/null; do sleep 5; done",
+      "echo 'kubeadm is ready: '$(kubeadm version --output=short)"
     ]
   }
 }
