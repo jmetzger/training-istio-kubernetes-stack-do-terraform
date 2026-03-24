@@ -28,6 +28,7 @@ resource "digitalocean_record" "ingress_dns_wildcard_user" {
   type   = "A"
   name   = "*.${data.external.current_user.result["user"]}"
   value  = data.external.ingress_data.result["ingress_ip"]
+  ttl    = 60
 }
 
 
